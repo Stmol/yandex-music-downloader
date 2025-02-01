@@ -1,5 +1,6 @@
 .vscode/
 downloads/
+build/
 token.txt
 debug.log
 
