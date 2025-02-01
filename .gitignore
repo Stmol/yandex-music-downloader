@@ -1,0 +1,6 @@
+.vscode/
+downloads/
+token.txt
+debug.log
+
+.DS_Store
