@@ -40,6 +40,7 @@ type focusable int
 // UI view constants.
 const (
 	viewList focusable = iota
+	viewBackButton
 	viewDownloadButton
 	viewQuitButton
 )
@@ -127,6 +128,22 @@ func (m DownloadModel) Init() tea.Cmd {
 	return nil
 }
 
+func (m *DownloadModel) Reset() {
+	m.tracksProgress = nil
+	m.tpUpdateCh = nil
+	m.tracksTotalCount = 0
+	m.downloadedCount = 0
+	m.downloadableCount = 0
+	m.errorCount = 0
+	m.isDownloading = false
+	m.focusedView = viewList
+	m.selectedTrackInfo = ""
+	m.hideDuplicates = false
+	m.trackList.ResetFilter()
+	m.trackList.ResetSelected()
+	m.trackList.SetItems(nil)
+}
+
 func (m *DownloadModel) AddTracks(tracks []model.Track) {
 	for _, track := range tracks {
 		status := TrackStatusReady
@@ -171,7 +188,16 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 			if m.focusedView == viewQuitButton {
 				return m, tea.Quit
 			}
+			if m.focusedView == viewBackButton {
+				if !m.isDownloading {
+					return m, func() tea.Msg { return BackToURLMsg{} }
+				}
+				break
+			}
 			if m.isDownloading || m.focusedView == viewList {
+				break
+			}
+			if m.focusedView != viewDownloadButton {
 				break
 			}
 			m.isDownloading = true
@@ -235,8 +261,25 @@ func (m DownloadModel) View() string {
 }
 
 func (m *DownloadModel) cycleFocus() {
+	if m.isDownloading && m.focusedView == viewBackButton {
+		m.focusedView = viewDownloadButton
+		return
+	}
+	if m.isDownloading {
+		switch m.focusedView {
+		case viewList:
+			m.focusedView = viewDownloadButton
+		case viewDownloadButton:
+			m.focusedView = viewQuitButton
+		case viewQuitButton:
+			m.focusedView = viewList
+		}
+		return
+	}
 	switch m.focusedView {
 	case viewList:
+		m.focusedView = viewBackButton
+	case viewBackButton:
 		m.focusedView = viewDownloadButton
 	case viewDownloadButton:
 		m.focusedView = viewQuitButton
@@ -386,7 +429,17 @@ func renderButtons(m DownloadModel) string {
 		quitBtnStyle = focusedButtonStyle
 	}
 
-	return downloadBtnStyle.Render("[  Download  ]") + "  " + quitBtnStyle.Render("[  Quit  ]")
+	var backLabel string
+	switch {
+	case m.isDownloading:
+		backLabel = dimGrayForeground.Margin(0, 1).Render("[ Back to URL ]")
+	case m.focusedView == viewBackButton:
+		backLabel = focusedButtonStyle.Render("[ Back to URL ]")
+	default:
+		backLabel = buttonBaseStyle.Render("[ Back to URL ]")
+	}
+
+	return backLabel + "  " + downloadBtnStyle.Render("[ Download All ]") + "  " + quitBtnStyle.Render("[  Quit  ]")
 }
 
 func handleDownloadsProgress(updCh chan TrackProgress) tea.Cmd {

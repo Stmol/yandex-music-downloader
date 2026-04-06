@@ -65,6 +65,14 @@ func (m SourceModel) Init() tea.Cmd {
 	return textinput.Blink
 }
 
+// Reset clears the URL field and errors so the source screen is ready for a new link (e.g. after Back to URL).
+func (m *SourceModel) Reset() {
+	m.urlInput.SetValue("")
+	m.errorMsg = ""
+	m.isProcessing = false
+	m.urlInput.Focus()
+}
+
 func (m SourceModel) Update(msg tea.Msg) (SourceModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd

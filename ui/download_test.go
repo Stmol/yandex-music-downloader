@@ -5,9 +5,36 @@ import (
 	"testing"
 	"ya-music/ya/model"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestReset(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.AddTracks([]model.Track{
+		{Title: "A", Available: true},
+		{Title: "B", Available: true},
+	})
+	m.focusedView = viewQuitButton
+	m.hideDuplicates = true
+	m.selectedTrackInfo = "x"
+	m.isDownloading = true
+
+	m.trackList, _ = m.trackList.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m.trackList, _ = m.trackList.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	assert.NotEmpty(t, m.trackList.FilterValue())
+
+	m.Reset()
+
+	assert.Equal(t, 0, len(m.tracksProgress))
+	assert.False(t, m.isDownloading)
+	assert.Equal(t, viewList, m.focusedView)
+	assert.False(t, m.hideDuplicates)
+	assert.Equal(t, "", m.selectedTrackInfo)
+	assert.Equal(t, 0, len(m.trackList.Items()))
+	assert.Equal(t, "", m.trackList.FilterValue())
+}
 
 func TestAddTracks(t *testing.T) {
 	m := NewDownloadModel(nil)
@@ -39,6 +66,9 @@ func TestCycleFocus(t *testing.T) {
 	assert.Equal(t, viewList, m.focusedView)
 
 	m.cycleFocus()
+	assert.Equal(t, viewBackButton, m.focusedView)
+
+	m.cycleFocus()
 	assert.Equal(t, viewDownloadButton, m.focusedView)
 
 	m.cycleFocus()
@@ -46,6 +76,29 @@ func TestCycleFocus(t *testing.T) {
 
 	m.cycleFocus()
 	assert.Equal(t, viewList, m.focusedView)
+}
+
+func TestCycleFocusSkipsBackWhenDownloading(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.isDownloading = true
+
+	m.cycleFocus()
+	assert.Equal(t, viewDownloadButton, m.focusedView)
+
+	m.cycleFocus()
+	assert.Equal(t, viewQuitButton, m.focusedView)
+
+	m.cycleFocus()
+	assert.Equal(t, viewList, m.focusedView)
+}
+
+func TestCycleFocusMovesOffBackWhenDownloadingStarts(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.focusedView = viewBackButton
+	m.isDownloading = true
+
+	m.cycleFocus()
+	assert.Equal(t, viewDownloadButton, m.focusedView)
 }
 
 func TestResetState(t *testing.T) {

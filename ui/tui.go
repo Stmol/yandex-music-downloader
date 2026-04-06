@@ -32,6 +32,9 @@ var (
 	spinnerStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 )
 
+// BackToURLMsg is sent when the user chooses to leave the download screen and return to URL input.
+type BackToURLMsg struct{}
+
 type Model struct {
 	initState     UiState
 	tokenModel    TokenModel
@@ -53,6 +56,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Type == tea.KeyCtrlC {
 			return m, tea.Quit
 		}
+
+	case BackToURLMsg:
+		m.initState = UiStateSelectSource
+		m.downloadModel.Reset()
+		m.sourceModel.Reset()
+		return m, m.sourceModel.Init()
 
 	case TokenOkMsg:
 		m.initState = UiStateSelectSource
