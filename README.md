@@ -26,6 +26,7 @@ A GUI application for downloading tracks from the Yandex Music streaming service
 -   Extract the archive to any directory you prefer
 -   For Linux and macOS, make the binary executable: `chmod +x yamdl`
 -   Launch the application from the terminal: `./yamdl`
+-   Optional: set a download timeout in seconds: `./yamdl --timeout 180`
 
 ## Authentication Token
 
@@ -89,6 +90,7 @@ For detailed instructions on how to obtain your token, refer to this [page](http
 -   Navigate to the `[ Download ]` button using `<tab>` and press `<Enter>`
 -   The download process will start
 -   Track statuses update in real-time
+-   If needed, you can relaunch the app with `--timeout <seconds>` to limit how long a single file download may take
 
 ![downloading](assets/img_download_in_progress.png)
 

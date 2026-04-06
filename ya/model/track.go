@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -15,7 +14,7 @@ type Track struct {
 	DesiredVisibility string        `json:"desiredVisibility"`
 	DurationMs        int           `json:"durationMs"`
 	Filename          string        `json:"filename"`
-	ID                json.Number   `json:"id"`
+	ID                FlexibleID    `json:"id"`
 	MetaData          MetaData      `json:"metaData,omitempty"`
 	Title             string        `json:"title"`
 	Version           string        `json:"version"`

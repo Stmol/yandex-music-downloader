@@ -17,18 +17,19 @@ import (
 )
 
 const (
-	UserAgent              = "Yandex-Music-API"
-	DefaultTimeout         = 10 * time.Second
-	DefaultDownloadTimeout = 2 * time.Minute
-	DefaultBufferSize      = 1024 * 1024
+	UserAgent             = "Yandex-Music-API"
+	DefaultRequestTimeout = 30 * time.Second
+	DefaultBufferSize     = 1024 * 1024
 )
 
 type HttpClient struct {
-	httpClient *http.Client
-	headers    map[string]string
-	logger     *DownloadLogger
-	ctx        context.Context
-	cancel     context.CancelFunc
+	httpClient      *http.Client
+	headers         map[string]string
+	logger          *DownloadLogger
+	ctx             context.Context
+	cancel          context.CancelFunc
+	requestTimeout  time.Duration
+	downloadTimeout time.Duration
 }
 
 func NewHttpClient() *HttpClient {
@@ -43,11 +44,13 @@ func NewHttpClientWithLogger(logger *DownloadLogger) *HttpClient {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	client := &HttpClient{
-		httpClient: &http.Client{Timeout: DefaultTimeout},
-		headers:    make(map[string]string),
-		logger:     logger,
-		ctx:        ctx,
-		cancel:     cancel,
+		httpClient:      &http.Client{},
+		headers:         make(map[string]string),
+		logger:          logger,
+		ctx:             ctx,
+		cancel:          cancel,
+		requestTimeout:  DefaultRequestTimeout,
+		downloadTimeout: 0,
 	}
 
 	client.headers["User-Agent"] = UserAgent
@@ -72,6 +75,14 @@ func (c *HttpClient) SetToken(token string) {
 	c.headers["Authorization"] = fmt.Sprintf("OAuth %s", token)
 }
 
+func (c *HttpClient) SetDownloadTimeout(timeout time.Duration) {
+	if timeout < 0 {
+		timeout = 0
+	}
+
+	c.downloadTimeout = timeout
+}
+
 func (c *HttpClient) Get(url string) ([]byte, error) {
 	return c.GetWithContext(RequestLogContext{}, url)
 }
@@ -89,7 +100,10 @@ func (c *HttpClient) PostWithContext(reqCtx RequestLogContext, url string, data 
 }
 
 func (c *HttpClient) sendRequest(reqCtx RequestLogContext, method, url string, data []byte) ([]byte, error) {
-	req, err := c.createRequest(method, url, data)
+	ctx, cancel := withOptionalTimeout(c.baseContext(), c.requestTimeout)
+	defer cancel()
+
+	req, err := c.createRequest(ctx, method, url, data)
 	if err != nil {
 		c.logRequest(slog.LevelError, reqCtx, "http request create failed", method, url,
 			"error", err,
@@ -147,8 +161,8 @@ func (c *HttpClient) sendRequest(reqCtx RequestLogContext, method, url string, d
 	return body, nil
 }
 
-func (c *HttpClient) createRequest(method, url string, data []byte) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(c.baseContext(), method, url, bytes.NewBuffer(data))
+func (c *HttpClient) createRequest(ctx context.Context, method, url string, data []byte) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +179,7 @@ func (c *HttpClient) DownloadFile(url, filepath string) error {
 }
 
 func (c *HttpClient) DownloadFileWithContext(reqCtx RequestLogContext, url, filepath string) error {
-	ctx, cancel := context.WithTimeout(c.baseContext(), DefaultDownloadTimeout)
+	ctx, cancel := withOptionalTimeout(c.baseContext(), c.downloadTimeout)
 	defer cancel()
 
 	req, err := c.createDownloadRequest(ctx, url)
@@ -281,6 +295,14 @@ func (c *HttpClient) baseContext() context.Context {
 	}
 
 	return c.ctx
+}
+
+func withOptionalTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+
+	return context.WithTimeout(ctx, timeout)
 }
 
 func (c *HttpClient) logRequest(level slog.Level, reqCtx RequestLogContext, msg, method, rawURL string, args ...any) {

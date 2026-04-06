@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 	"ya-music/ya/model"
@@ -165,7 +166,7 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 
 	isSelected := index == m.Index()
 
-	trackNumber := fmt.Sprintf("%02d. ", index+1)
+	trackNumber := formatTrackNumber(index, len(m.Items()))
 	trackNumberStyleToUse := trackNumberStyle
 	if isSelected {
 		trackNumberStyleToUse = selectedTrackNumberStyle
@@ -196,4 +197,13 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 	)
 
 	fmt.Fprint(w, str)
+}
+
+func formatTrackNumber(index int, totalItems int) string {
+	width := len(strconv.Itoa(totalItems))
+	if width <= 2 {
+		return fmt.Sprintf("%02d. ", index+1)
+	}
+
+	return fmt.Sprintf("%*d. ", width, index+1)
 }

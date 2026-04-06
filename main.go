@@ -1,11 +1,13 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 	"ya-music/ui"
 	"ya-music/utils"
 	"ya-music/ya"
@@ -14,6 +16,15 @@ import (
 )
 
 func main() {
+	var downloadTimeoutSeconds int
+	flag.IntVar(&downloadTimeoutSeconds, "timeout", 0, "download timeout in seconds (0 disables timeout)")
+	flag.Parse()
+
+	if downloadTimeoutSeconds < 0 {
+		fmt.Fprintln(os.Stderr, "timeout must be >= 0 seconds")
+		os.Exit(2)
+	}
+
 	downloadLogger, err := utils.NewDownloadLogger(utils.DefaultDownloadLogPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to initialize download logger: %v\n", err)
@@ -29,7 +40,10 @@ func main() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	client := ya.NewClient(utils.NewHttpClientWithLogger(downloadLogger))
+	httpClient := utils.NewHttpClientWithLogger(downloadLogger)
+	httpClient.SetDownloadTimeout(time.Duration(downloadTimeoutSeconds) * time.Second)
+
+	client := ya.NewClient(httpClient)
 	prog := tea.NewProgram(ui.StartUi(client), tea.WithAltScreen())
 
 	go func() {
@@ -41,6 +55,7 @@ func main() {
 
 	downloadLogger.Info("application started",
 		"log_path", downloadLogger.Path(),
+		"download_timeout_seconds", downloadTimeoutSeconds,
 	)
 
 	if os.Getenv("DEBUG") != "" {

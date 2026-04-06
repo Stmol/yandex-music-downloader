@@ -10,21 +10,31 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/google/uuid"
 )
 
 var (
-	trackPattern    = regexp.MustCompile(`^(?:https?://)?music\.yandex\.ru/album/(?P<albumId>\d+)/track/(?P<trackId>\d+)(?:\?.*)?$`)
-	playlistPattern = regexp.MustCompile(`^(?:https?://)?music\.yandex\.ru/users/(?P<username>[^/]+)/playlists/(?P<playlistId>\d+)(?:\?.*)?$`)
+	yandexMusicHostPattern = `music\.yandex\.(?:ru|com|kz|by|uz)`
+	trackPattern           = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/album/(?P<albumId>\d+)/track/(?P<trackId>\d+)(?:\?.*)?$`)
+	playlistPattern        = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/users/(?P<username>[^/]+)/playlists/(?P<playlistId>\d+)(?:\?.*)?$`)
+	playlistUUIDPattern    = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/playlists/(?P<playlistUuid>[0-9a-fA-F-]{36})(?:\?.*)?$`)
+)
+
+type sourceURLKind int
+
+const (
+	sourceURLTrack sourceURLKind = iota
+	sourceURLLegacyPlaylist
+	sourceURLPlaylistUUID
 )
 
 type (
-	URLSubmitTrackMsg struct {
-		TrackID string
-	}
-
-	URLSubmitPlaylistMsg struct {
-		PlaylistID string
-		Username   string
+	URLSubmitMsg struct {
+		kind         sourceURLKind
+		TrackID      string
+		PlaylistID   string
+		PlaylistUUID string
+		Username     string
 	}
 
 	SourceSubmitMsg struct {
@@ -86,13 +96,9 @@ func (m SourceModel) Update(msg tea.Msg) (SourceModel, tea.Cmd) {
 			return m.handleEnterKey()
 		}
 
-	case URLSubmitTrackMsg:
+	case URLSubmitMsg:
 		m.isProcessing = true
-		cmds = append(cmds, m.handleTrackURL(msg))
-
-	case URLSubmitPlaylistMsg:
-		m.isProcessing = true
-		cmds = append(cmds, m.handlePlaylistURL(msg))
+		cmds = append(cmds, m.handleURL(msg))
 
 	case SourceSubmitMsg:
 		m.isProcessing = false
@@ -129,34 +135,60 @@ func (m SourceModel) handleEnterKey() (SourceModel, tea.Cmd) {
 
 func (m *SourceModel) parseURL(input string) tea.Msg {
 	if matches := trackPattern.FindStringSubmatch(input); matches != nil {
-		return URLSubmitTrackMsg{TrackID: matches[2]}
+		return URLSubmitMsg{
+			kind:    sourceURLTrack,
+			TrackID: matches[2],
+		}
 	}
 	if matches := playlistPattern.FindStringSubmatch(input); matches != nil {
-		return URLSubmitPlaylistMsg{
+		return URLSubmitMsg{
+			kind:       sourceURLLegacyPlaylist,
 			PlaylistID: matches[2],
 			Username:   matches[1],
+		}
+	}
+	if matches := playlistUUIDPattern.FindStringSubmatch(input); matches != nil {
+		if _, err := uuid.Parse(matches[1]); err != nil {
+			return nil
+		}
+
+		return URLSubmitMsg{
+			kind:         sourceURLPlaylistUUID,
+			PlaylistUUID: matches[1],
 		}
 	}
 	return nil
 }
 
-func (m *SourceModel) handleTrackURL(msg URLSubmitTrackMsg) tea.Cmd {
+func (m *SourceModel) handleURL(msg URLSubmitMsg) tea.Cmd {
 	return func() tea.Msg {
-		track, err := m.client.TrackInfo(msg.TrackID)
-		if err != nil {
-			return URLHandleErrorMsg(err.Error())
+		switch msg.kind {
+		case sourceURLTrack:
+			track, err := m.client.TrackInfo(msg.TrackID)
+			if err != nil {
+				return URLHandleErrorMsg(err.Error())
+			}
+			return SourceSubmitMsg{Track: track}
+		case sourceURLLegacyPlaylist, sourceURLPlaylistUUID:
+			playlist, err := m.fetchPlaylist(msg)
+			if err != nil {
+				return URLHandleErrorMsg(err.Error())
+			}
+			return SourceSubmitMsg{Playlist: playlist}
+		default:
+			return URLHandleErrorMsg("unsupported url type")
 		}
-		return SourceSubmitMsg{Track: track}
 	}
 }
 
-func (m *SourceModel) handlePlaylistURL(msg URLSubmitPlaylistMsg) tea.Cmd {
-	return func() tea.Msg {
-		playlist, err := m.client.UsersPlaylist(msg.PlaylistID, msg.Username)
-		if err != nil {
-			return URLHandleErrorMsg(err.Error())
-		}
-		return SourceSubmitMsg{Playlist: playlist}
+func (m *SourceModel) fetchPlaylist(msg URLSubmitMsg) (*model.Playlist, error) {
+	switch msg.kind {
+	case sourceURLLegacyPlaylist:
+		return m.client.UsersPlaylist(msg.PlaylistID, msg.Username)
+	case sourceURLPlaylistUUID:
+		return m.client.PlaylistByUUID(msg.PlaylistUUID)
+	default:
+		return nil, fmt.Errorf("unsupported playlist url type")
 	}
 }
 
@@ -164,7 +196,8 @@ func (m SourceModel) View() string {
 	s := "What do you want to download?\n\n"
 	s += dimGrayForeground.Render("Examples of URL:")
 	s += dimGrayForeground.Render("\n- Track: https://music.yandex.ru/album/1231231/track/12312345")
-	s += dimGrayForeground.Render("\n- Playlist: https://music.yandex.ru/users/username/playlists/12312311")
+	s += dimGrayForeground.Render("\n- Playlist: https://music.yandex.ru/playlists/4dc94b2f-e96b-2daf-a53c-ce71846901b3")
+	s += dimGrayForeground.Render("\n- Legacy playlist: https://music.yandex.ru/users/username/playlists/12312311")
 	s += "\n\n"
 	s += m.urlInput.View()
 

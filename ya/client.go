@@ -37,6 +37,7 @@ const (
 type YaClient interface {
 	TrackInfo(id string) (*model.Track, error)
 	UsersPlaylist(id string, username string) (*model.Playlist, error)
+	PlaylistByUUID(id string) (*model.Playlist, error)
 	DownloadTrack(track model.Track, outputDir string) (string, error)
 	SetToken(token string)
 	AccountStatus() (*model.Account, error)
@@ -122,7 +123,14 @@ func (c *Client) TrackInfo(id string) (*model.Track, error) {
 }
 
 func (c *Client) UsersPlaylist(id string, username string) (*model.Playlist, error) {
-	url := fmt.Sprintf("%s/users/%s/playlists/%s", baseURL, username, id)
+	return c.fetchPlaylist(fmt.Sprintf("%s/users/%s/playlists/%s", baseURL, username, id))
+}
+
+func (c *Client) PlaylistByUUID(id string) (*model.Playlist, error) {
+	return c.fetchPlaylist(fmt.Sprintf("%s/playlist/%s", baseURL, id))
+}
+
+func (c *Client) fetchPlaylist(url string) (*model.Playlist, error) {
 	if res, err := c.httpClient.Get(url); err != nil {
 		return nil, err
 	} else {

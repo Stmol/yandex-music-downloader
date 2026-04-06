@@ -6,3 +6,4 @@ debug.log
 dl_logs.txt
 
 .DS_Store
+.gocache/

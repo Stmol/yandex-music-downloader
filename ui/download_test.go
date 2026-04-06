@@ -2,7 +2,6 @@ package ui
 
 import (
 	"bytes"
-	"encoding/json"
 	"testing"
 	"ya-music/utils"
 	"ya-music/ya"
@@ -43,12 +42,12 @@ func TestAddTracks(t *testing.T) {
 	m := NewDownloadModel(nil)
 	tracks := []model.Track{
 		{
-			ID:        json.Number(uuid.New().String()),
+			ID:        model.FlexibleID(uuid.New().String()),
 			Title:     "Track 1",
 			Available: true,
 		},
 		{
-			ID:        json.Number(uuid.New().String()),
+			ID:        model.FlexibleID(uuid.New().String()),
 			Title:     "Track 2",
 			Available: false,
 		},
@@ -199,10 +198,10 @@ func TestSortTracksByTitle(t *testing.T) {
 func TestFindDuplicates(t *testing.T) {
 	id1 := uuid.New()
 	tracks := []*TrackProgress{
-		{track: &model.Track{ID: json.Number(id1.String()), Title: "Same"}},
-		{track: &model.Track{ID: json.Number(id1.String()), Title: "Same"}},
-		{track: &model.Track{ID: json.Number(uuid.New().String()), Title: "Same"}},
-		{track: &model.Track{ID: json.Number(uuid.New().String()), Title: "Unique"}},
+		{track: &model.Track{ID: model.FlexibleID(id1.String()), Title: "Same"}},
+		{track: &model.Track{ID: model.FlexibleID(id1.String()), Title: "Same"}},
+		{track: &model.Track{ID: model.FlexibleID(uuid.New().String()), Title: "Same"}},
+		{track: &model.Track{ID: model.FlexibleID(uuid.New().String()), Title: "Unique"}},
 	}
 
 	findDuplicates(tracks)
@@ -222,11 +221,11 @@ func TestDownloadTracksLogsSkippedReasons(t *testing.T) {
 
 	progressList := []*TrackProgress{
 		{
-			track:  &model.Track{ID: json.Number("1"), Title: "Duplicate"},
+			track:  &model.Track{ID: model.FlexibleID("1"), Title: "Duplicate"},
 			status: TrackStatusDuplicate,
 		},
 		{
-			track:  &model.Track{ID: json.Number("2"), Title: "Unavailable"},
+			track:  &model.Track{ID: model.FlexibleID("2"), Title: "Unavailable"},
 			status: TrackStatusNotAvailable,
 		},
 	}
