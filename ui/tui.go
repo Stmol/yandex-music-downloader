@@ -34,6 +34,9 @@ var (
 
 // BackToURLMsg is sent when the user chooses to leave the download screen and return to URL input.
 type BackToURLMsg struct{}
+type ShutdownRequestedMsg struct {
+	Reason string
+}
 
 type Model struct {
 	initState     UiState
@@ -54,7 +57,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC {
-			return m, tea.Quit
+			return m.handleShutdown("ctrl_c")
 		}
 
 	case BackToURLMsg:
@@ -81,6 +84,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.downloadModel.AddTracks(tracks)
 
 		cmds = append(cmds, m.downloadModel.Init())
+
+	case ShutdownRequestedMsg:
+		return m.handleShutdown(msg.Reason)
 	}
 
 	switch m.initState {
@@ -123,4 +129,17 @@ func StartUi(client *ya.Client) Model {
 		sourceModel:   NewSourceModel(client),
 		downloadModel: NewDownloadModel(client),
 	}
+}
+
+func (m Model) handleShutdown(reason string) (tea.Model, tea.Cmd) {
+	if m.downloadModel.isDownloading {
+		m.downloadModel.requestShutdown(reason)
+		return m, nil
+	}
+
+	downloadLogger(m.downloadModel.client).Info("application quit requested",
+		"reason", reason,
+		"is_downloading", false,
+	)
+	return m, tea.Quit
 }

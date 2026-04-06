@@ -3,5 +3,6 @@ downloads/
 build/
 token.txt
 debug.log
+dl_logs.txt
 
 .DS_Store

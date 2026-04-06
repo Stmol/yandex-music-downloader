@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"path/filepath"
 	"sort"
@@ -43,18 +44,40 @@ type YaClient interface {
 
 type Client struct {
 	httpClient *utils.HttpClient
+	logger     *utils.DownloadLogger
 	userUID    int
 	username   string
 }
 
 func NewClient(httpClient *utils.HttpClient) *Client {
+	if httpClient == nil {
+		httpClient = utils.NewHttpClient()
+	}
+
 	return &Client{
 		httpClient: httpClient,
+		logger:     httpClient.Logger(),
 	}
 }
 
 func (c *Client) SetToken(token string) {
 	c.httpClient.SetToken(token)
+}
+
+func (c *Client) Logger() *utils.DownloadLogger {
+	if c == nil || c.logger == nil {
+		return utils.NewDiscardDownloadLogger()
+	}
+
+	return c.logger
+}
+
+func (c *Client) Cancel() {
+	if c == nil || c.httpClient == nil {
+		return
+	}
+
+	c.httpClient.Cancel()
 }
 
 func (c *Client) AccountStatus() (*model.Account, error) {
@@ -143,9 +166,13 @@ func (c *Client) UsersPlaylists(ids string) ([]model.Playlist, error) {
 }
 
 func (c *Client) TracksDownloadInfo(trackId string) ([]model.DownloadInfo, error) {
+	return c.tracksDownloadInfo(utils.RequestLogContext{}, trackId)
+}
+
+func (c *Client) tracksDownloadInfo(reqCtx utils.RequestLogContext, trackId string) ([]model.DownloadInfo, error) {
 	url := fmt.Sprintf("%s/tracks/%s/download-info", baseURL, trackId)
 
-	res, err := c.httpClient.Get(url)
+	res, err := c.httpClient.GetWithContext(reqCtx, url)
 	if err != nil {
 		return nil, err
 	}
@@ -153,14 +180,25 @@ func (c *Client) TracksDownloadInfo(trackId string) ([]model.DownloadInfo, error
 	var data model.DownloadInfoResponse
 	err = parseResponse(res, &data)
 	if err != nil {
+		c.logRequest(slog.LevelError, reqCtx, "download info parse failed",
+			"error", err,
+		)
 		return nil, err
 	}
+
+	c.logRequest(slog.LevelInfo, reqCtx, "download info parsed",
+		"options_count", len(data.Result),
+	)
 
 	return data.Result, nil
 }
 
 func (c *Client) TrackDownloadLink(url string) (string, error) {
-	res, err := c.httpClient.Get(url)
+	return c.trackDownloadLink(utils.RequestLogContext{}, url)
+}
+
+func (c *Client) trackDownloadLink(reqCtx utils.RequestLogContext, url string) (string, error) {
+	res, err := c.httpClient.GetWithContext(reqCtx, url)
 	if err != nil {
 		return "", err
 	}
@@ -168,39 +206,84 @@ func (c *Client) TrackDownloadLink(url string) (string, error) {
 	var info model.TrackDownloadInfo
 	err = xml.Unmarshal(res, &info)
 	if err != nil {
+		c.logRequest(slog.LevelError, reqCtx, "download link parse failed",
+			"error", err,
+		)
 		return "", err
 	}
 
 	link := buildDirectLink(info)
+	c.logRequest(slog.LevelInfo, reqCtx, "download link resolved",
+		"download_url", utils.SanitizeURL(link),
+	)
 
 	return link, nil
 }
 
 func (c *Client) DownloadTrack(track model.Track, outputDir string) (string, error) {
+	trackCtx := utils.NewTrackLogContext(track)
 	filename := buildTrackFilename(track, outputDir)
+	c.logTrack(slog.LevelInfo, trackCtx, "download started",
+		"stage", "start",
+		"filename", filename,
+	)
 
-	if exists, _ := utils.FileExists(filename); exists {
+	exists, err := utils.FileExists(filename)
+	if err != nil {
+		c.logTrackFailure(trackCtx, "precheck", err,
+			"filename", filename,
+		)
+		return "", fmt.Errorf("failed to inspect destination file: %w", err)
+	}
+
+	if exists {
+		c.logTrack(slog.LevelInfo, trackCtx, "skipped",
+			"stage", "precheck",
+			"reason", "already_exists",
+			"filename", filename,
+		)
 		return filename, fmt.Errorf("file already exists: %s", filename)
 	}
 
-	info, err := c.TracksDownloadInfo(track.ID.String())
+	info, err := c.tracksDownloadInfo(c.requestContext(trackCtx, "download_info", "fetch_download_info"), track.ID.String())
 	if err != nil {
+		c.logTrackFailure(trackCtx, "download_info", err)
 		return "", fmt.Errorf("failed to get download info: %w", err)
 	}
 
 	bestBitrate := pickBestBitrate(info)
 	if bestBitrate.BitrateInKbps == 0 {
+		c.logTrack(slog.LevelError, trackCtx, "failed",
+			"stage", "select_bitrate",
+			"reason", "no_download_options",
+		)
 		return "", fmt.Errorf("no download options available")
 	}
 
-	link, err := c.TrackDownloadLink(bestBitrate.DownloadInfoURL)
+	c.logTrack(slog.LevelInfo, trackCtx, "download option selected",
+		"stage", "select_bitrate",
+		"bitrate_kbps", bestBitrate.BitrateInKbps,
+		"codec", bestBitrate.Codec,
+		"download_info_url", utils.SanitizeURL(bestBitrate.DownloadInfoURL),
+	)
+
+	link, err := c.trackDownloadLink(c.requestContext(trackCtx, "download_link", "fetch_direct_link"), bestBitrate.DownloadInfoURL)
 	if err != nil {
+		c.logTrackFailure(trackCtx, "download_link", err)
 		return "", fmt.Errorf("failed to get download link: %w", err)
 	}
 
-	if err := c.httpClient.DownloadFile(link, filename); err != nil {
+	if err := c.httpClient.DownloadFileWithContext(c.requestContext(trackCtx, "download_file", "download_mp3"), link, filename); err != nil {
+		c.logTrackFailure(trackCtx, "download_file", err,
+			"filename", filename,
+		)
 		return "", fmt.Errorf("failed to download file: %w", err)
 	}
+
+	c.logTrack(slog.LevelInfo, trackCtx, "success",
+		"stage", "download_file",
+		"filename", filename,
+	)
 
 	return filename, nil
 }
@@ -239,4 +322,29 @@ func pickBestBitrate(info []model.DownloadInfo) model.DownloadInfo {
 	})
 
 	return info[0]
+}
+
+func (c *Client) requestContext(trackCtx utils.TrackLogContext, stage, operation string) utils.RequestLogContext {
+	return utils.RequestLogContext{
+		Track:     trackCtx,
+		Stage:     stage,
+		Operation: operation,
+	}
+}
+
+func (c *Client) logRequest(level slog.Level, reqCtx utils.RequestLogContext, msg string, args ...any) {
+	c.Logger().LogRequest(level, reqCtx, msg, args...)
+}
+
+func (c *Client) logTrack(level slog.Level, trackCtx utils.TrackLogContext, msg string, args ...any) {
+	c.Logger().LogTrack(level, trackCtx, msg, args...)
+}
+
+func (c *Client) logTrackFailure(trackCtx utils.TrackLogContext, stage string, err error, args ...any) {
+	attrs := []any{
+		"stage", stage,
+		"error", err,
+	}
+	attrs = append(attrs, args...)
+	c.logTrack(slog.LevelError, trackCtx, "failed", attrs...)
 }

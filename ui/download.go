@@ -2,7 +2,8 @@ package ui
 
 import (
 	"fmt"
-	"slices"
+	"log/slog"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -81,6 +82,7 @@ type DownloadModel struct {
 
 	// UI state.
 	isDownloading     bool
+	shutdownRequested bool
 	focusedView       focusable
 	selectedTrackInfo string
 	hideDuplicates    bool
@@ -120,6 +122,7 @@ func NewDownloadModel(client *ya.Client) DownloadModel {
 		tracksProgress:    []*TrackProgress{},
 		focusedView:       viewList,
 		hideDuplicates:    false,
+		shutdownRequested: false,
 		selectedTrackInfo: "",
 	}
 }
@@ -136,6 +139,7 @@ func (m *DownloadModel) Reset() {
 	m.downloadableCount = 0
 	m.errorCount = 0
 	m.isDownloading = false
+	m.shutdownRequested = false
 	m.focusedView = viewList
 	m.selectedTrackInfo = ""
 	m.hideDuplicates = false
@@ -186,6 +190,15 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			if m.focusedView == viewQuitButton {
+				if m.isDownloading {
+					m.requestShutdown("quit_button")
+					return m, nil
+				}
+
+				downloadLogger(m.client).Info("application quit requested",
+					"reason", "quit_button",
+					"is_downloading", false,
+				)
 				return m, tea.Quit
 			}
 			if m.focusedView == viewBackButton {
@@ -233,6 +246,9 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 
 	case DownloadEndMsg:
 		m.isDownloading = false
+		if m.shutdownRequested {
+			return m, tea.Quit
+		}
 
 	case ListSelectedItemMsg, list.FilterMatchesMsg:
 		if item, ok := m.trackList.SelectedItem().(TrackListItem); ok {
@@ -293,23 +309,31 @@ func (m *DownloadModel) downloadTracks(updCh chan TrackProgress, progressList []
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, maxConcurrentDownloads)
 
-		skipStatuses := []TrackStatus{
-			TrackStatusDownloading,
-			TrackStatusDuplicate,
-			TrackStatusNotAvailable,
-		}
+		logger := downloadLogger(m.client)
+		logger.Info("download session started",
+			"total_tracks", len(progressList),
+			"max_concurrent_downloads", maxConcurrentDownloads,
+		)
 
 		for _, tp := range progressList {
-			if slices.Contains(skipStatuses, tp.status) {
+			if reason, shouldSkip := skipDownloadReason(tp.status); shouldSkip {
+				logger.LogTrack(slog.LevelInfo, utils.NewTrackLogContext(*tp.track), "skipped",
+					"stage", "queue",
+					"reason", reason,
+				)
 				continue
 			}
 
+			logger.LogTrack(slog.LevelInfo, utils.NewTrackLogContext(*tp.track), "queued",
+				"stage", "queue",
+			)
 			wg.Add(1)
 			go m.downloadTrack(tp, &wg, sem, updCh)
 		}
 
 		go func() {
 			wg.Wait()
+			logger.Info("download session finished")
 			close(updCh)
 		}()
 
@@ -319,10 +343,29 @@ func (m *DownloadModel) downloadTracks(updCh chan TrackProgress, progressList []
 
 func (m *DownloadModel) downloadTrack(tp *TrackProgress, wg *sync.WaitGroup, sem chan struct{}, updCh chan TrackProgress) {
 	defer wg.Done()
+	logger := downloadLogger(m.client)
+	trackCtx := utils.NewTrackLogContext(*tp.track)
+
+	defer func() {
+		if r := recover(); r != nil {
+			tp.status = TrackStatusError
+			tp.errMsg = fmt.Sprintf("panic: %v", r)
+			logger.LogTrack(slog.LevelError, trackCtx, "panic recovered",
+				"stage", "download_track",
+				"error", fmt.Sprintf("%v", r),
+				"stack", string(debug.Stack()),
+			)
+			updCh <- *tp
+		}
+	}()
+
 	sem <- struct{}{}
 	defer func() { <-sem }()
 
 	tp.status = TrackStatusDownloading
+	logger.LogTrack(slog.LevelInfo, trackCtx, "worker started",
+		"stage", "download_track",
+	)
 	updCh <- *tp
 
 	filePath, err := m.client.DownloadTrack(*tp.track, outputDir)
@@ -333,11 +376,32 @@ func (m *DownloadModel) downloadTrack(tp *TrackProgress, wg *sync.WaitGroup, sem
 
 		if filePath != "" {
 			tp.status = TrackStatusAlreadyExists
+			logger.LogTrack(slog.LevelInfo, trackCtx, "worker skipped",
+				"stage", "download_track",
+				"status", tp.status.String(),
+				"filename", filePath,
+				"reason", "already_exists",
+			)
+			updCh <- *tp
+			return
 		}
+
+		logger.LogTrack(slog.LevelError, trackCtx, "worker finished with error",
+			"stage", "download_track",
+			"status", tp.status.String(),
+			"filename", filePath,
+			"error", err,
+		)
 	} else {
 		tp.status = TrackStatusDownloaded
 		tp.filename = filePath
 		tp.errMsg = ""
+
+		logger.LogTrack(slog.LevelInfo, trackCtx, "worker finished",
+			"stage", "download_track",
+			"status", tp.status.String(),
+			"filename", filePath,
+		)
 	}
 
 	updCh <- *tp
@@ -421,11 +485,17 @@ func renderHeader(completed, total, downloadable, errors int) string {
 func renderButtons(m DownloadModel) string {
 	downloadBtnStyle := buttonBaseStyle
 	quitBtnStyle := buttonBaseStyle
+	quitLabel := "[  Quit  ]"
+
+	if m.shutdownRequested && m.isDownloading {
+		quitBtnStyle = dimGrayForeground.Margin(0, 1)
+		quitLabel = "[ Cancelling... ]"
+	}
 
 	if m.focusedView == viewDownloadButton {
 		downloadBtnStyle = focusedButtonStyle
 	}
-	if m.focusedView == viewQuitButton {
+	if m.focusedView == viewQuitButton && !(m.shutdownRequested && m.isDownloading) {
 		quitBtnStyle = focusedButtonStyle
 	}
 
@@ -439,7 +509,7 @@ func renderButtons(m DownloadModel) string {
 		backLabel = buttonBaseStyle.Render("[ Back to URL ]")
 	}
 
-	return backLabel + "  " + downloadBtnStyle.Render("[ Download All ]") + "  " + quitBtnStyle.Render("[  Quit  ]")
+	return backLabel + "  " + downloadBtnStyle.Render("[ Download All ]") + "  " + quitBtnStyle.Render(quitLabel)
 }
 
 func handleDownloadsProgress(updCh chan TrackProgress) tea.Cmd {
@@ -480,5 +550,36 @@ func findDuplicates(tracks []*TrackProgress) {
 
 		seen[idKey] = struct{}{}
 		seen[nameKey] = struct{}{}
+	}
+}
+
+func skipDownloadReason(status TrackStatus) (string, bool) {
+	switch status {
+	case TrackStatusDownloading:
+		return "already_downloading", true
+	case TrackStatusDuplicate:
+		return "duplicate", true
+	case TrackStatusNotAvailable:
+		return "not_available", true
+	case TrackStatusAlreadyExists:
+		return "already_exists", true
+	default:
+		return "", false
+	}
+}
+
+func (m *DownloadModel) requestShutdown(reason string) {
+	if m.shutdownRequested {
+		return
+	}
+
+	m.shutdownRequested = true
+	downloadLogger(m.client).Info("application quit requested",
+		"reason", reason,
+		"is_downloading", m.isDownloading,
+	)
+
+	if m.client != nil {
+		m.client.Cancel()
 	}
 }

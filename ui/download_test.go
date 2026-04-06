@@ -1,8 +1,11 @@
 package ui
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
+	"ya-music/utils"
+	"ya-music/ya"
 	"ya-music/ya/model"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -208,4 +211,57 @@ func TestFindDuplicates(t *testing.T) {
 	assert.Equal(t, TrackStatusDuplicate, tracks[1].status)
 	assert.Equal(t, TrackStatusDuplicate, tracks[2].status)
 	assert.Equal(t, TrackStatusReady, tracks[3].status)
+}
+
+func TestDownloadTracksLogsSkippedReasons(t *testing.T) {
+	var logs bytes.Buffer
+	logger := utils.NewDownloadLoggerForWriter(&logs)
+	client := ya.NewClient(utils.NewHttpClientWithLogger(logger))
+	m := NewDownloadModel(client)
+	updCh := make(chan TrackProgress)
+
+	progressList := []*TrackProgress{
+		{
+			track:  &model.Track{ID: json.Number("1"), Title: "Duplicate"},
+			status: TrackStatusDuplicate,
+		},
+		{
+			track:  &model.Track{ID: json.Number("2"), Title: "Unavailable"},
+			status: TrackStatusNotAvailable,
+		},
+	}
+
+	msg := m.downloadTracks(updCh, progressList)()
+	assert.IsType(t, DownloadStartMsg{}, msg)
+
+	assert.Contains(t, logs.String(), "download session started")
+	assert.Contains(t, logs.String(), "reason=duplicate")
+	assert.Contains(t, logs.String(), "reason=not_available")
+	assert.Contains(t, logs.String(), "track_title=Duplicate")
+	assert.Contains(t, logs.String(), "track_title=Unavailable")
+}
+
+func TestQuitButtonCancelsActiveDownloads(t *testing.T) {
+	client := ya.NewClient(utils.NewHttpClient())
+	m := NewDownloadModel(client)
+	m.isDownloading = true
+	m.focusedView = viewQuitButton
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	assert.True(t, updated.shutdownRequested)
+	assert.Nil(t, cmd)
+}
+
+func TestDownloadEndQuitsAfterShutdownRequest(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.isDownloading = true
+	m.shutdownRequested = true
+
+	updated, cmd := m.Update(DownloadEndMsg{})
+
+	assert.False(t, updated.isDownloading)
+	if assert.NotNil(t, cmd) {
+		assert.IsType(t, tea.QuitMsg{}, cmd())
+	}
 }

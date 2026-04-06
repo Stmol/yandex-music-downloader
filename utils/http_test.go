@@ -1,9 +1,11 @@
 package utils
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -38,6 +40,40 @@ func TestGet(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, `{"result": "success"}`, string(resp))
+}
+
+func TestGetWithContextLogsRequestAndRedactsAuthorization(t *testing.T) {
+	var logs bytes.Buffer
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		w.Write([]byte(`{"result": "success"}`))
+	}))
+	defer server.Close()
+
+	logger := NewDownloadLoggerForWriter(&logs)
+	client := NewHttpClientWithLogger(logger)
+	client.SetToken("secret-token")
+
+	trackCtx := TrackLogContext{
+		ID:    "123",
+		Title: "Test Track",
+		URL:   "https://music.yandex.ru/track/123",
+	}
+
+	resp, err := client.GetWithContext(RequestLogContext{
+		Track:     trackCtx,
+		Stage:     "download_info",
+		Operation: "fetch_download_info",
+	}, server.URL)
+
+	assert.NoError(t, err)
+	assert.Equal(t, `{"result": "success"}`, string(resp))
+	assert.Contains(t, logs.String(), "http request started")
+	assert.Contains(t, logs.String(), "http request finished")
+	assert.Contains(t, logs.String(), "track_title=\"Test Track\"")
+	assert.Contains(t, logs.String(), "stage=download_info")
+	assert.NotContains(t, logs.String(), "secret-token")
+	assert.Contains(t, logs.String(), "***")
 }
 
 func TestPost(t *testing.T) {
@@ -86,4 +122,91 @@ func TestDownloadFileError(t *testing.T) {
 
 	err := client.DownloadFile(server.URL, tempFile)
 	assert.Error(t, err)
+}
+
+func TestDownloadFileWithContextLogsBadStatus(t *testing.T) {
+	var logs bytes.Buffer
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":"missing"}`))
+	}))
+	defer server.Close()
+
+	logger := NewDownloadLoggerForWriter(&logs)
+	client := NewHttpClientWithLogger(logger)
+	tempFile := "test_download_error_with_logs.tmp"
+	defer os.Remove(tempFile)
+
+	err := client.DownloadFileWithContext(RequestLogContext{
+		Track: TrackLogContext{
+			ID:    "123",
+			Title: "Test Track",
+			URL:   "https://music.yandex.ru/track/123",
+		},
+		Stage:     "download_file",
+		Operation: "download_mp3",
+	}, server.URL, tempFile)
+
+	assert.Error(t, err)
+	assert.Contains(t, logs.String(), "download request finished with bad status")
+	assert.Contains(t, logs.String(), "status_code=404")
+	assert.Contains(t, logs.String(), "track_url=https://music.yandex.ru/track/123")
+}
+
+func TestDownloadFileCancelRemovesTempFile(t *testing.T) {
+	serverStarted := make(chan struct{})
+	serverCanFinish := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("partial"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+
+		close(serverStarted)
+		<-serverCanFinish
+		_, _ = w.Write([]byte(" content"))
+	}))
+	defer server.Close()
+
+	client := NewHttpClient()
+	targetFile := filepath.Join(t.TempDir(), "track.mp3")
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- client.DownloadFile(server.URL, targetFile)
+	}()
+
+	<-serverStarted
+	client.Cancel()
+	close(serverCanFinish)
+
+	err := <-errCh
+	assert.Error(t, err)
+	_, statErr := os.Stat(targetFile)
+	assert.True(t, os.IsNotExist(statErr))
+
+	tempFiles, globErr := filepath.Glob(targetFile + ".*.part")
+	assert.NoError(t, globErr)
+	assert.Empty(t, tempFiles)
+}
+
+func TestDownloadFileWithContextRedactsSignedURL(t *testing.T) {
+	var logs bytes.Buffer
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	logger := NewDownloadLoggerForWriter(&logs)
+	client := NewHttpClientWithLogger(logger)
+	tempFile := filepath.Join(t.TempDir(), "test_download_url_redaction.tmp")
+
+	signedURL := server.URL + "/get-mp3/signed-part/ts-value/path/to/file.mp3?token=secret"
+	err := client.DownloadFileWithContext(RequestLogContext{}, signedURL, tempFile)
+
+	assert.NoError(t, err)
+	assert.Contains(t, logs.String(), "url="+SanitizeURL(signedURL))
+	assert.NotContains(t, logs.String(), "token=secret")
+	assert.NotContains(t, logs.String(), "/signed-part/ts-value/path/to/file.mp3")
 }
