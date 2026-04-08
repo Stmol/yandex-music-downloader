@@ -6,18 +6,18 @@ import (
 )
 
 type Track struct {
-	Available         bool          `json:"available"`
-	Artists           []Artist      `json:"artists"`
-	Albums            []interface{} `json:"albums"`
-	CanPublish        bool          `json:"canPublish"`
-	CoverURI          string        `json:"coverUri,omitempty"`
-	DesiredVisibility string        `json:"desiredVisibility"`
-	DurationMs        int           `json:"durationMs"`
-	Filename          string        `json:"filename"`
-	ID                FlexibleID    `json:"id"`
-	MetaData          MetaData      `json:"metaData,omitempty"`
-	Title             string        `json:"title"`
-	Version           string        `json:"version"`
+	Available         bool       `json:"available"`
+	Artists           []Artist   `json:"artists"`
+	Albums            []Album    `json:"albums"`
+	CanPublish        bool       `json:"canPublish"`
+	CoverURI          string     `json:"coverUri,omitempty"`
+	DesiredVisibility string     `json:"desiredVisibility"`
+	DurationMs        int        `json:"durationMs"`
+	Filename          string     `json:"filename"`
+	ID                FlexibleID `json:"id"`
+	MetaData          MetaData   `json:"metaData,omitempty"`
+	Title             string     `json:"title"`
+	Version           string     `json:"version"`
 }
 
 func (t Track) FullTitle() string {

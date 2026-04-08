@@ -6,10 +6,14 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	id3v2 "github.com/bogem/id3v2/v2"
 	"log/slog"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"ya-music/utils"
 	"ya-music/ya/model"
 )
@@ -231,6 +235,7 @@ func (c *Client) trackDownloadLink(reqCtx utils.RequestLogContext, url string) (
 func (c *Client) DownloadTrack(track model.Track, outputDir string) (string, error) {
 	trackCtx := utils.NewTrackLogContext(track)
 	filename := buildTrackFilename(track, outputDir)
+	cover := buildCoverFilename(track, outputDir)
 	c.logTrack(slog.LevelInfo, trackCtx, "download started",
 		"stage", "start",
 		"filename", filename,
@@ -288,6 +293,26 @@ func (c *Client) DownloadTrack(track model.Track, outputDir string) (string, err
 		return "", fmt.Errorf("failed to download file: %w", err)
 	}
 
+	var album model.Album
+
+	if len(track.Albums) > 0 {
+		album = track.Albums[0]
+
+		if err := c.httpClient.DownloadFileWithContext(c.requestContext(trackCtx, "download_cover", "download_jpg"), album.Cover(600), cover); err != nil {
+			c.logTrackFailure(trackCtx, "download_file", err,
+				"cover", cover,
+			)
+			return "", fmt.Errorf("failed to download file: %w", err)
+		}
+	}
+
+	if bestBitrate.Codec == "mp3" {
+		if err = writeMP3Tags(track, album, filename, cover); err != nil {
+			c.logTrackFailure(trackCtx, "write_tags", err)
+			return "", fmt.Errorf("failed to write tags: %w", err)
+		}
+	}
+
 	c.logTrack(slog.LevelInfo, trackCtx, "success",
 		"stage", "download_file",
 		"filename", filename,
@@ -297,8 +322,13 @@ func (c *Client) DownloadTrack(track model.Track, outputDir string) (string, err
 }
 
 func buildTrackFilename(track model.Track, outputDir string) string {
-	title := fmt.Sprintf("%s - %s", track.FullTitle(), track.ArtistsString())
+	title := fmt.Sprintf("%s - %s", track.ArtistsString(), track.FullTitle())
 	return filepath.Join(outputDir, utils.SanitizeFilename(title)+".mp3")
+}
+
+func buildCoverFilename(track model.Track, outputDir string) string {
+	title := fmt.Sprintf("%s - %s", track.ArtistsString(), track.FullTitle())
+	return filepath.Join(outputDir, utils.SanitizeFilename(title)+".jpg")
 }
 
 func parseResponse(responseBody []byte, response interface{}) error {
@@ -330,6 +360,58 @@ func pickBestBitrate(info []model.DownloadInfo) model.DownloadInfo {
 	})
 
 	return info[0]
+}
+
+func writeMP3Tags(track model.Track, album model.Album, file, cover string) error {
+	tag, err := id3v2.Open(file, id3v2.Options{Parse: true})
+
+	if err != nil {
+		return fmt.Errorf("can't open mp3: %w", err)
+	}
+
+	defer tag.Close()
+
+	tag.SetTitle(track.FullTitle())
+	tag.SetArtist(track.ArtistsString())
+	tag.SetAlbum(album.Title)
+	tag.SetYear(strconv.Itoa(album.Year))
+	tag.SetGenre(strings.Title(album.Genre))
+
+	if album.Index() > 0 {
+		tag.AddTextFrame(
+			tag.CommonID("Track number/Position in set"),
+			id3v2.EncodingUTF8,
+			fmt.Sprintf("%d/%d", album.Index(), album.TrackCount),
+		)
+	}
+
+	coverData, err := os.ReadFile(cover)
+
+	if err != nil {
+		return fmt.Errorf("can't read cover data: %w", err)
+	}
+
+	tag.AddAttachedPicture(id3v2.PictureFrame{
+		Encoding:    id3v2.EncodingUTF8,
+		MimeType:    "image/jpeg",
+		PictureType: id3v2.PTFrontCover,
+		Description: "Front cover",
+		Picture:     coverData,
+	})
+
+	err = tag.Save()
+
+	if err != nil {
+		return fmt.Errorf("can't write cover into mp3: %w", err)
+	}
+
+	err = os.Remove(cover)
+
+	if err != nil {
+		return fmt.Errorf("can't delete cover file: %w", err)
+	}
+
+	return nil
 }
 
 func (c *Client) requestContext(trackCtx utils.TrackLogContext, stage, operation string) utils.RequestLogContext {
