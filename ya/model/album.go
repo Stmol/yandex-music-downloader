@@ -18,7 +18,7 @@ type TrackPosition struct {
 	Index int `json:"index"`
 }
 
-func (a Album) Cover(size int) string {
+func (a Album) CoverURL(size int) string {
 	return "https://" + strings.ReplaceAll(a.CoverURI, `%%`, fmt.Sprintf("%dx%d", size, size))
 }
 

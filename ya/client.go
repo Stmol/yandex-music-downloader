@@ -298,7 +298,7 @@ func (c *Client) DownloadTrack(track model.Track, outputDir string) (string, err
 	if len(track.Albums) > 0 {
 		album = track.Albums[0]
 
-		if err := c.httpClient.DownloadFileWithContext(c.requestContext(trackCtx, "download_cover", "download_jpg"), album.Cover(600), cover); err != nil {
+		if err := c.httpClient.DownloadFileWithContext(c.requestContext(trackCtx, "download_cover", "download_jpg"), album.CoverURL(600), cover); err != nil {
 			c.logTrackFailure(trackCtx, "download_file", err,
 				"cover", cover,
 			)
