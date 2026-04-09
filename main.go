@@ -17,7 +17,9 @@ import (
 
 func main() {
 	var downloadTimeoutSeconds int
+	var skipCover bool
 	flag.IntVar(&downloadTimeoutSeconds, "timeout", 0, "download timeout in seconds (0 disables timeout)")
+	flag.BoolVar(&skipCover, "skip-cover", false, "skip downloading and embedding track cover images")
 	flag.Parse()
 
 	if downloadTimeoutSeconds < 0 {
@@ -44,7 +46,8 @@ func main() {
 	httpClient.SetDownloadTimeout(time.Duration(downloadTimeoutSeconds) * time.Second)
 
 	client := ya.NewClient(httpClient)
-	prog := tea.NewProgram(ui.StartUi(client), tea.WithAltScreen())
+	downloadOptions := ya.DownloadOptions{SkipCover: skipCover}
+	prog := tea.NewProgram(ui.StartUi(client, downloadOptions), tea.WithAltScreen())
 
 	go func() {
 		sig := <-sigCh
@@ -56,6 +59,7 @@ func main() {
 	downloadLogger.Info("application started",
 		"log_path", downloadLogger.Path(),
 		"download_timeout_seconds", downloadTimeoutSeconds,
+		"skip_cover", skipCover,
 	)
 
 	if os.Getenv("DEBUG") != "" {

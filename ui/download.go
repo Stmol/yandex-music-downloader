@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
@@ -63,7 +64,8 @@ type DownloadProgressUpdateMsg struct {
 
 type DownloadModel struct {
 	// External dependencies.
-	client *ya.Client
+	client          *ya.Client
+	downloadOptions ya.DownloadOptions
 
 	// UI components.
 	spinner   spinner.Model
@@ -88,7 +90,7 @@ type DownloadModel struct {
 	hideDuplicates    bool
 }
 
-func NewDownloadModel(client *ya.Client) DownloadModel {
+func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) DownloadModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = spinnerStyle
@@ -116,6 +118,7 @@ func NewDownloadModel(client *ya.Client) DownloadModel {
 
 	return DownloadModel{
 		client:            client,
+		downloadOptions:   downloadOptionsOrDefault(options),
 		spinner:           sp,
 		progress:          p,
 		trackList:         l,
@@ -125,6 +128,13 @@ func NewDownloadModel(client *ya.Client) DownloadModel {
 		shutdownRequested: false,
 		selectedTrackInfo: "",
 	}
+}
+
+func downloadOptionsOrDefault(options []ya.DownloadOptions) ya.DownloadOptions {
+	if len(options) == 0 {
+		return ya.DownloadOptions{}
+	}
+	return options[0]
 }
 
 func (m DownloadModel) Init() tea.Cmd {
@@ -368,13 +378,13 @@ func (m *DownloadModel) downloadTrack(tp *TrackProgress, wg *sync.WaitGroup, sem
 	)
 	updCh <- *tp
 
-	filePath, err := m.client.DownloadTrack(*tp.track, outputDir)
+	filePath, err := m.client.DownloadTrackWithOptions(*tp.track, outputDir, m.downloadOptions)
 	if err != nil {
 		tp.status = TrackStatusError
 		tp.errMsg = err.Error()
 		tp.filename = filePath
 
-		if filePath != "" {
+		if errors.Is(err, ya.ErrTrackAlreadyExists) {
 			tp.status = TrackStatusAlreadyExists
 			logger.LogTrack(slog.LevelInfo, trackCtx, "worker skipped",
 				"stage", "download_track",

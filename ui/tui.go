@@ -122,12 +122,12 @@ func (m Model) View() string {
 	return ""
 }
 
-func StartUi(client *ya.Client) Model {
+func StartUi(client *ya.Client, options ...ya.DownloadOptions) Model {
 	return Model{
 		initState:     UiStateTokenInput,
 		tokenModel:    NewTokenModel(client),
 		sourceModel:   NewSourceModel(client),
-		downloadModel: NewDownloadModel(client),
+		downloadModel: NewDownloadModel(client, downloadOptionsOrDefault(options)),
 	}
 }
 

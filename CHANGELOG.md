@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.4 - 2026-04-09
+- added ID3 metadata writing for downloaded MP3 files, including title, artists, album, year, genre, track number, and Yandex track ID where available
+- added cover downloading and embedding as MP3 front-cover artwork, with non-fatal cover failures and best-effort temporary cover cleanup
+- added `--skip-cover=true` so users can avoid cover traffic while still writing text ID3 tags
+- changed downloaded filenames to the canonical `Artist - Track Name.mp3` pattern
+
 ## v1.3 - 2026-04-06
 - added optional `--timeout <seconds>` support so a single file download can be limited without affecting regular API requests
 - expanded source URL parsing to accept Yandex Music domains beyond `.ru` and added support for playlist links by UUID

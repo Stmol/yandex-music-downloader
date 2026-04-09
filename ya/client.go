@@ -5,11 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"path/filepath"
 	"sort"
+	"strings"
 	"ya-music/utils"
 	"ya-music/ya/model"
 )
@@ -34,11 +36,14 @@ const (
 	CodecAAC = "aac"
 )
 
+var ErrTrackAlreadyExists = errors.New("track file already exists")
+
 type YaClient interface {
 	TrackInfo(id string) (*model.Track, error)
 	UsersPlaylist(id string, username string) (*model.Playlist, error)
 	PlaylistByUUID(id string) (*model.Playlist, error)
 	DownloadTrack(track model.Track, outputDir string) (string, error)
+	DownloadTrackWithOptions(track model.Track, outputDir string, options DownloadOptions) (string, error)
 	SetToken(token string)
 	AccountStatus() (*model.Account, error)
 }
@@ -229,11 +234,16 @@ func (c *Client) trackDownloadLink(reqCtx utils.RequestLogContext, url string) (
 }
 
 func (c *Client) DownloadTrack(track model.Track, outputDir string) (string, error) {
+	return c.DownloadTrackWithOptions(track, outputDir, DownloadOptions{})
+}
+
+func (c *Client) DownloadTrackWithOptions(track model.Track, outputDir string, options DownloadOptions) (string, error) {
 	trackCtx := utils.NewTrackLogContext(track)
 	filename := buildTrackFilename(track, outputDir)
 	c.logTrack(slog.LevelInfo, trackCtx, "download started",
 		"stage", "start",
 		"filename", filename,
+		"skip_cover", options.SkipCover,
 	)
 
 	exists, err := utils.FileExists(filename)
@@ -250,7 +260,7 @@ func (c *Client) DownloadTrack(track model.Track, outputDir string) (string, err
 			"reason", "already_exists",
 			"filename", filename,
 		)
-		return filename, fmt.Errorf("file already exists: %s", filename)
+		return filename, fmt.Errorf("%w: %s", ErrTrackAlreadyExists, filename)
 	}
 
 	info, err := c.tracksDownloadInfo(c.requestContext(trackCtx, "download_info", "fetch_download_info"), track.ID.String())
@@ -281,24 +291,70 @@ func (c *Client) DownloadTrack(track model.Track, outputDir string) (string, err
 		return "", fmt.Errorf("failed to get download link: %w", err)
 	}
 
+	coverCh := c.startCoverDownload(track, filename, options)
 	if err := c.httpClient.DownloadFileWithContext(c.requestContext(trackCtx, "download_file", "download_mp3"), link, filename); err != nil {
+		cover := c.waitCoverDownload(trackCtx, coverCh)
+		if cover.filename != "" {
+			c.removeCoverFile(trackCtx, cover.filename)
+		}
 		c.logTrackFailure(trackCtx, "download_file", err,
 			"filename", filename,
 		)
 		return "", fmt.Errorf("failed to download file: %w", err)
 	}
 
+	cover := c.waitCoverDownload(trackCtx, coverCh)
+	if cover.filename != "" {
+		defer c.removeCoverFile(trackCtx, cover.filename)
+	}
+
+	if err := writeID3Tags(filename, track, cover.filename); err != nil {
+		c.logTrackFailure(trackCtx, "id3_tags", err,
+			"filename", filename,
+			"cover_filename", cover.filename,
+		)
+		return filename, fmt.Errorf("failed to write id3 tags: %w", err)
+	}
+
 	c.logTrack(slog.LevelInfo, trackCtx, "success",
-		"stage", "download_file",
+		"stage", "id3_tags",
 		"filename", filename,
+		"cover_filename", cover.filename,
 	)
 
 	return filename, nil
 }
 
+func (c *Client) waitCoverDownload(trackCtx utils.TrackLogContext, coverCh <-chan coverDownloadResult) coverDownloadResult {
+	cover := <-coverCh
+	if cover.err != nil {
+		c.logTrack(slog.LevelWarn, trackCtx, "cover download ignored",
+			"stage", "download_cover",
+			"error", cover.err,
+		)
+	}
+
+	return cover
+}
+
 func buildTrackFilename(track model.Track, outputDir string) string {
-	title := fmt.Sprintf("%s - %s", track.FullTitle(), track.ArtistsString())
-	return filepath.Join(outputDir, utils.SanitizeFilename(title)+".mp3")
+	return filepath.Join(outputDir, utils.SanitizeFilename(trackFilenameBase(track))+".mp3")
+}
+
+func trackFilenameBase(track model.Track) string {
+	artist := strings.TrimSpace(track.ArtistsString())
+	title := strings.TrimSpace(track.FullTitle())
+
+	switch {
+	case artist != "" && title != "":
+		return artist + " - " + title
+	case title != "":
+		return title
+	case artist != "":
+		return artist
+	default:
+		return strings.TrimSpace(track.ID.String())
+	}
 }
 
 func parseResponse(responseBody []byte, response interface{}) error {

@@ -14,6 +14,7 @@ import (
 
 func TestReset(t *testing.T) {
 	m := NewDownloadModel(nil)
+	m.downloadOptions = ya.DownloadOptions{SkipCover: true}
 	m.AddTracks([]model.Track{
 		{Title: "A", Available: true},
 		{Title: "B", Available: true},
@@ -36,6 +37,13 @@ func TestReset(t *testing.T) {
 	assert.Equal(t, "", m.selectedTrackInfo)
 	assert.Equal(t, 0, len(m.trackList.Items()))
 	assert.Equal(t, "", m.trackList.FilterValue())
+	assert.True(t, m.downloadOptions.SkipCover)
+}
+
+func TestNewDownloadModelStoresDownloadOptions(t *testing.T) {
+	m := NewDownloadModel(nil, ya.DownloadOptions{SkipCover: true})
+
+	assert.True(t, m.downloadOptions.SkipCover)
 }
 
 func TestAddTracks(t *testing.T) {

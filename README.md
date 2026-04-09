@@ -16,6 +16,7 @@ A GUI application for downloading tracks from the Yandex Music streaming service
 -   Modern graphical user interface
 -   _Blazingly fast, powered by the Go programming language_
 -   Download individual tracks and playlists in MP3 format
+-   Add ID3 tags and embedded cover art to downloaded MP3 files
 -   Duplicate detection in playlists
 -   Concurrent file downloads
 
@@ -27,6 +28,7 @@ A GUI application for downloading tracks from the Yandex Music streaming service
 -   For Linux and macOS, make the binary executable: `chmod +x yamdl`
 -   Launch the application from the terminal: `./yamdl`
 -   Optional: set a download timeout in seconds: `./yamdl --timeout 180`
+-   Optional: skip cover download and embedding to save time and traffic: `./yamdl --skip-cover=true`
 
 ## Authentication Token
 
@@ -91,6 +93,8 @@ For detailed instructions on how to obtain your token, refer to this [page](http
 -   The download process will start
 -   Track statuses update in real-time
 -   If needed, you can relaunch the app with `--timeout <seconds>` to limit how long a single file download may take
+-   By default, each MP3 is tagged with title, artist, album metadata, Yandex track ID, and embedded cover art when available
+-   If cover downloads are slow or expensive, relaunch with `--skip-cover=true`; text ID3 tags will still be written
 
 ![downloading](assets/img_download_in_progress.png)
 
@@ -98,6 +102,7 @@ For detailed instructions on how to obtain your token, refer to this [page](http
 
 -   The progress bar fills completely upon download completion
 -   Downloaded tracks are available in the `./downloads` directory
+-   A track is marked as completed only after the MP3 file is saved and ID3 tags are written; cover download failures are ignored so they do not block the track
 
 ![download complete](assets/img_download_complete.png)
 

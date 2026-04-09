@@ -32,3 +32,10 @@ func TestShutdownRequestedMsgQuitsImmediatelyWhenIdle(t *testing.T) {
 		assert.IsType(t, tea.QuitMsg{}, cmd())
 	}
 }
+
+func TestStartUiPassesDownloadOptions(t *testing.T) {
+	client := ya.NewClient(utils.NewHttpClient())
+	model := StartUi(client, ya.DownloadOptions{SkipCover: true})
+
+	assert.True(t, model.downloadModel.downloadOptions.SkipCover)
+}
