@@ -17,7 +17,7 @@ var (
 	yandexMusicHostPattern = `music\.yandex\.(?:ru|com|kz|by|uz)`
 	trackPattern           = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/album/(?P<albumId>\d+)/track/(?P<trackId>\d+)(?:\?.*)?$`)
 	playlistPattern        = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/users/(?P<username>[^/]+)/playlists/(?P<playlistId>\d+)(?:\?.*)?$`)
-	playlistUUIDPattern    = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/playlists/(?P<playlistUuid>[0-9a-fA-F-]{36})(?:\?.*)?$`)
+	playlistUUIDPattern    = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/playlists/(?P<playlistUuid>(?:[a-z]{2}\.)?[0-9a-fA-F-]{36})(?:\?.*)?$`)
 )
 
 type sourceURLKind int
@@ -148,13 +148,21 @@ func (m *SourceModel) parseURL(input string) tea.Msg {
 		}
 	}
 	if matches := playlistUUIDPattern.FindStringSubmatch(input); matches != nil {
-		if _, err := uuid.Parse(matches[1]); err != nil {
+		playlistID := matches[1]
+		uuidPart := playlistID
+		if prefix, rest, found := strings.Cut(playlistID, "."); found {
+			if len(prefix) != 2 {
+				return nil
+			}
+			uuidPart = rest
+		}
+		if _, err := uuid.Parse(uuidPart); err != nil {
 			return nil
 		}
 
 		return URLSubmitMsg{
 			kind:         sourceURLPlaylistUUID,
-			PlaylistUUID: matches[1],
+			PlaylistUUID: playlistID,
 		}
 	}
 	return nil

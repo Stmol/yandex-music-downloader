@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.5 - 2026-04-13
+- added support for new Yandex Music playlist links with prefixed UUIDs such as `lk.` and `ps.`
+
 ## v1.4 - 2026-04-09
 - added ID3 metadata writing for downloaded MP3 files, including title, artists, album, year, genre, track number, and Yandex track ID where available
 - added cover downloading and embedding as MP3 front-cover artwork, with non-fatal cover failures and best-effort temporary cover cleanup

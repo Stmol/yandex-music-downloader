@@ -3,6 +3,7 @@ package ui
 import (
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -32,11 +33,36 @@ func TestSourceParseURLLegacyPlaylist(t *testing.T) {
 func TestSourceParseURLPlaylistUUID(t *testing.T) {
 	m := SourceModel{}
 
-	msg := m.parseURL("https://music.yandex.ru/playlists/4dc94b2f-e96b-2daf-a53c-ce71846901b3?utm_source=web&utm_medium=copy_link")
+	playlistUUID := uuid.NewString()
+	msg := m.parseURL("https://music.yandex.ru/playlists/" + playlistUUID + "?utm_source=web&utm_medium=copy_link")
 
 	assert.Equal(t, URLSubmitMsg{
 		kind:         sourceURLPlaylistUUID,
-		PlaylistUUID: "4dc94b2f-e96b-2daf-a53c-ce71846901b3",
+		PlaylistUUID: playlistUUID,
+	}, msg)
+}
+
+func TestSourceParseURLPlaylistUUIDWithLikesPrefix(t *testing.T) {
+	m := SourceModel{}
+
+	playlistUUID := uuid.NewString()
+	msg := m.parseURL("https://music.yandex.ru/playlists/lk." + playlistUUID + "?utm_source=web&utm_medium=copy_link")
+
+	assert.Equal(t, URLSubmitMsg{
+		kind:         sourceURLPlaylistUUID,
+		PlaylistUUID: "lk." + playlistUUID,
+	}, msg)
+}
+
+func TestSourceParseURLPlaylistUUIDWithGenericPrefix(t *testing.T) {
+	m := SourceModel{}
+
+	playlistUUID := uuid.NewString()
+	msg := m.parseURL("https://music.yandex.ru/playlists/ps." + playlistUUID + "?utm_source=web&utm_medium=copy_link")
+
+	assert.Equal(t, URLSubmitMsg{
+		kind:         sourceURLPlaylistUUID,
+		PlaylistUUID: "ps." + playlistUUID,
 	}, msg)
 }
 
@@ -44,6 +70,22 @@ func TestSourceParseURLInvalid(t *testing.T) {
 	m := SourceModel{}
 
 	msg := m.parseURL("https://music.yandex.ru/playlists/not-a-uuid")
+
+	assert.Nil(t, msg)
+}
+
+func TestSourceParseURLRejectsMalformedPlaylistUUIDWithGenericPrefix(t *testing.T) {
+	m := SourceModel{}
+
+	msg := m.parseURL("https://music.yandex.ru/playlists/p." + uuid.NewString())
+
+	assert.Nil(t, msg)
+}
+
+func TestSourceParseURLRejectsMalformedPlaylistUUIDWithLikesPrefix(t *testing.T) {
+	m := SourceModel{}
+
+	msg := m.parseURL("https://music.yandex.ru/playlists/lk.------------------------------------")
 
 	assert.Nil(t, msg)
 }
