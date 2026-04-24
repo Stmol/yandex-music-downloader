@@ -40,6 +40,7 @@ var ErrTrackAlreadyExists = errors.New("track file already exists")
 
 type YaClient interface {
 	TrackInfo(id string) (*model.Track, error)
+	AlbumWithTracks(id string) (*model.Album, error)
 	UsersPlaylist(id string, username string) (*model.Playlist, error)
 	PlaylistByUUID(id string) (*model.Playlist, error)
 	DownloadTrack(track model.Track, outputDir string) (string, error)
@@ -124,6 +125,26 @@ func (c *Client) TrackInfo(id string) (*model.Track, error) {
 		}
 
 		return &data.Result[0], nil
+	}
+}
+
+func (c *Client) AlbumWithTracks(id string) (*model.Album, error) {
+	url := fmt.Sprintf("%s/albums/%s/with-tracks", baseURL, id)
+
+	if res, err := c.httpClient.Get(url); err != nil {
+		return nil, err
+	} else {
+		var data model.AlbumResponse
+		err = parseResponse(res, &data)
+		if err != nil {
+			return nil, err
+		}
+
+		if data.Result.ID.String() == "" && len(data.Result.Volumes) == 0 {
+			return nil, fmt.Errorf("album not found")
+		}
+
+		return &data.Result, nil
 	}
 }
 

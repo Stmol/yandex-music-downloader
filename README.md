@@ -15,7 +15,7 @@ A GUI application for downloading tracks from the Yandex Music streaming service
 
 -   Modern graphical user interface
 -   _Blazingly fast, powered by the Go programming language_
--   Download individual tracks and playlists in MP3 format
+-   Download individual tracks, albums, and playlists in MP3 format
 -   Add ID3 tags and embedded cover art to downloaded MP3 files
 -   Duplicate detection in playlists
 -   Concurrent file downloads
@@ -36,7 +36,9 @@ An OAuth token is required for accessing certain tracks and playlists.
 
 🔐 Without a token, you will be able to download only 30 seconds of each track.
 
-For detailed instructions on how to obtain your token, refer to this [page](https://yandex-music.readthedocs.io/en/main/token.html).
+You can obtain a Yandex Music OAuth token using **[yandex-oauth-token](https://github.com/Stmol/yandex-oauth-token)**, a local helper that signs you in via QR and exchanges the session into a Music token. Run it on your machine, then paste the token into this app.
+
+For alternative ways to get a token, see the [yandex-music API documentation](https://yandex-music.readthedocs.io/en/main/token.html).
 
 ## Usage Guide
 
@@ -56,7 +58,7 @@ For detailed instructions on how to obtain your token, refer to this [page](http
 
 ### 3. Copy Track Link
 
--   Navigate to the Yandex Music web interface and select `Share` -> `Copy link` for any track or playlist
+-   Navigate to the Yandex Music web interface and select `Share` -> `Copy link` for any track, album, or playlist
 -   This will copy the URL to your clipboard
 
 <div align="center">

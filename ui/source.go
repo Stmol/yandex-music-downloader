@@ -16,14 +16,16 @@ import (
 var (
 	yandexMusicHostPattern = `music\.yandex\.(?:ru|com|kz|by|uz)`
 	trackPattern           = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/album/(?P<albumId>\d+)/track/(?P<trackId>\d+)(?:\?.*)?$`)
+	albumPattern           = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/album/(?P<albumId>\d+)(?:\?.*)?$`)
 	playlistPattern        = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/users/(?P<username>[^/]+)/playlists/(?P<playlistId>\d+)(?:\?.*)?$`)
-	playlistUUIDPattern    = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/playlists/(?P<playlistUuid>[0-9a-fA-F-]{36})(?:\?.*)?$`)
+	playlistUUIDPattern    = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/playlists/(?P<playlistUuid>(?:[a-z]{2}\.)?[0-9a-fA-F-]{36})(?:\?.*)?$`)
 )
 
 type sourceURLKind int
 
 const (
 	sourceURLTrack sourceURLKind = iota
+	sourceURLAlbum
 	sourceURLLegacyPlaylist
 	sourceURLPlaylistUUID
 )
@@ -32,6 +34,7 @@ type (
 	URLSubmitMsg struct {
 		kind         sourceURLKind
 		TrackID      string
+		AlbumID      string
 		PlaylistID   string
 		PlaylistUUID string
 		Username     string
@@ -39,6 +42,7 @@ type (
 
 	SourceSubmitMsg struct {
 		Playlist *model.Playlist
+		Album    *model.Album
 		Track    *model.Track
 	}
 
@@ -140,6 +144,12 @@ func (m *SourceModel) parseURL(input string) tea.Msg {
 			TrackID: matches[2],
 		}
 	}
+	if matches := albumPattern.FindStringSubmatch(input); matches != nil {
+		return URLSubmitMsg{
+			kind:    sourceURLAlbum,
+			AlbumID: matches[1],
+		}
+	}
 	if matches := playlistPattern.FindStringSubmatch(input); matches != nil {
 		return URLSubmitMsg{
 			kind:       sourceURLLegacyPlaylist,
@@ -148,13 +158,21 @@ func (m *SourceModel) parseURL(input string) tea.Msg {
 		}
 	}
 	if matches := playlistUUIDPattern.FindStringSubmatch(input); matches != nil {
-		if _, err := uuid.Parse(matches[1]); err != nil {
+		playlistID := matches[1]
+		uuidPart := playlistID
+		if prefix, rest, found := strings.Cut(playlistID, "."); found {
+			if len(prefix) != 2 {
+				return nil
+			}
+			uuidPart = rest
+		}
+		if _, err := uuid.Parse(uuidPart); err != nil {
 			return nil
 		}
 
 		return URLSubmitMsg{
 			kind:         sourceURLPlaylistUUID,
-			PlaylistUUID: matches[1],
+			PlaylistUUID: playlistID,
 		}
 	}
 	return nil
@@ -169,6 +187,12 @@ func (m *SourceModel) handleURL(msg URLSubmitMsg) tea.Cmd {
 				return URLHandleErrorMsg(err.Error())
 			}
 			return SourceSubmitMsg{Track: track}
+		case sourceURLAlbum:
+			album, err := m.client.AlbumWithTracks(msg.AlbumID)
+			if err != nil {
+				return URLHandleErrorMsg(err.Error())
+			}
+			return SourceSubmitMsg{Album: album}
 		case sourceURLLegacyPlaylist, sourceURLPlaylistUUID:
 			playlist, err := m.fetchPlaylist(msg)
 			if err != nil {
@@ -196,6 +220,7 @@ func (m SourceModel) View() string {
 	s := "What do you want to download?\n\n"
 	s += dimGrayForeground.Render("Examples of URL:")
 	s += dimGrayForeground.Render("\n- Track: https://music.yandex.ru/album/1231231/track/12312345")
+	s += dimGrayForeground.Render("\n- Album: https://music.yandex.ru/album/1231231")
 	s += dimGrayForeground.Render("\n- Playlist: https://music.yandex.ru/playlists/4dc94b2f-e96b-2daf-a53c-ce71846901b3")
 	s += dimGrayForeground.Render("\n- Legacy playlist: https://music.yandex.ru/users/username/playlists/12312311")
 	s += "\n\n"

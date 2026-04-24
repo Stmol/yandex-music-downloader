@@ -76,6 +76,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var tracks []model.Track
 		if msg.Track != nil {
 			tracks = append(tracks, *msg.Track)
+		} else if msg.Album != nil {
+			for _, volume := range msg.Album.Volumes {
+				tracks = append(tracks, volume...)
+			}
 		} else if msg.Playlist != nil {
 			for _, trackShort := range msg.Playlist.Tracks {
 				tracks = append(tracks, trackShort.Track)
