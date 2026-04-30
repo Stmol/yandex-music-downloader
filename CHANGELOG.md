@@ -1,6 +1,6 @@
 # Changelog
 
-## v
+## v1.7 - Unreleased
 - added a lossless FLAC download mode alongside the existing MP3 flow; MP3 remains the default format
 - added fallback-friendly download behavior: when FLAC is unavailable, invalid, fails to download, or cannot be tagged, the app automatically retries the same track as the best available MP3
 - added FLAC metadata writing with Vorbis comments and embedded cover artwork, including title, artists, album, album artist, genre, date, track/disc numbers, Yandex track ID, and a Yandex Music track URL comment
@@ -8,6 +8,12 @@
 - redesigned the download screen controls into a focused action group with consistent keyboard behavior: `Tab` switches between the track list and controls, arrow keys move inside the controls, and `Enter`/`Space` activates the selected control
 - made the download screen layout responsive to terminal height by resizing the track list from `tea.WindowSizeMsg`, keeping the header, progress bar, controls, and hotkey help visible
 - updated downloaded-track status rendering to show the actual saved format: `✅ FLAC` for FLAC downloads and `✅ MP3` for MP3 downloads or MP3 fallbacks
+
+## v1.6 - 2026-04-24
+- added support for Yandex Music album page URLs: paste an `/album/<id>` link to fetch the album and download all tracks in order
+
+## v1.5 - 2026-04-13
+- added support for new Yandex Music playlist links with prefixed UUIDs such as `lk.` and `ps.`
 
 ## v1.4 - 2026-04-09
 - added ID3 metadata writing for downloaded MP3 files, including title, artists, album, year, genre, track number, and Yandex track ID where available
