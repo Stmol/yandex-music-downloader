@@ -35,7 +35,8 @@ func TestShutdownRequestedMsgQuitsImmediatelyWhenIdle(t *testing.T) {
 
 func TestStartUiPassesDownloadOptions(t *testing.T) {
 	client := ya.NewClient(utils.NewHttpClient())
-	model := StartUi(client, ya.DownloadOptions{SkipCover: true})
+	model := StartUi(client, ya.DownloadOptions{SkipCover: true, AudioFormat: ya.AudioFormatFLAC})
 
 	assert.True(t, model.downloadModel.downloadOptions.SkipCover)
+	assert.Equal(t, ya.AudioFormatFLAC, model.downloadModel.downloadOptions.FormatOrDefault())
 }

@@ -32,6 +32,9 @@ require (
 	github.com/charmbracelet/bubbles v0.20.0
 	github.com/charmbracelet/bubbletea v1.2.4
 	github.com/charmbracelet/x/ansi v0.4.5
+	github.com/go-flac/flacpicture v0.3.0
+	github.com/go-flac/flacvorbis v0.2.0
+	github.com/go-flac/go-flac v1.0.0
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.10.0
 )

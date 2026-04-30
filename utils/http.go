@@ -178,6 +178,62 @@ func (c *HttpClient) DownloadFile(url, filepath string) error {
 	return c.DownloadFileWithContext(RequestLogContext{}, url, filepath)
 }
 
+func (c *HttpClient) DownloadBytesWithContext(reqCtx RequestLogContext, url string) ([]byte, error) {
+	ctx, cancel := withOptionalTimeout(c.baseContext(), c.downloadTimeout)
+	defer cancel()
+
+	req, err := c.createDownloadRequest(ctx, url)
+	if err != nil {
+		c.logRequest(slog.LevelError, reqCtx, "download request create failed", http.MethodGet, url,
+			"error", err,
+		)
+		return nil, err
+	}
+
+	startedAt := time.Now()
+	c.logRequest(slog.LevelInfo, reqCtx, "download request started", http.MethodGet, url,
+		"headers", SanitizeHeaders(req.Header),
+	)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logRequest(slog.LevelError, reqCtx, "download request failed", http.MethodGet, url,
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+			"error", err,
+		)
+		return nil, fmt.Errorf("failed to download bytes: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.logRequest(slog.LevelError, reqCtx, "download response read failed", http.MethodGet, url,
+			"status_code", resp.StatusCode,
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+			"error", err,
+		)
+		return nil, fmt.Errorf("failed to read download response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		c.logRequest(slog.LevelError, reqCtx, "download request finished with bad status", http.MethodGet, url,
+			"status_code", resp.StatusCode,
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+			"response_bytes", len(body),
+			"response_preview", responsePreview(resp.Header.Get("Content-Type"), body),
+		)
+		return nil, fmt.Errorf("failed to download bytes: status code %d", resp.StatusCode)
+	}
+
+	c.logRequest(slog.LevelInfo, reqCtx, "download request finished", http.MethodGet, url,
+		"status_code", resp.StatusCode,
+		"duration_ms", time.Since(startedAt).Milliseconds(),
+		"response_bytes", len(body),
+	)
+
+	return body, nil
+}
+
 func (c *HttpClient) DownloadFileWithContext(reqCtx RequestLogContext, url, filepath string) error {
 	ctx, cancel := withOptionalTimeout(c.baseContext(), c.downloadTimeout)
 	defer cancel()

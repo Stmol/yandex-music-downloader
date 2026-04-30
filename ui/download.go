@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"ya-music/ya"
 	"ya-music/ya/model"
 
+	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/progress"
@@ -25,15 +27,23 @@ import (
 const (
 	outputDir              = "./downloads" // Root directory for downloads.
 	maxConcurrentDownloads = 3             // Maximum number of concurrent downloads.
+	defaultDownloadWidth   = 80
+	defaultTrackListHeight = 18
+	minTrackListHeight     = 6
 )
 
 // Global style variables.
 var (
-	marginLeftStyle    = lipgloss.NewStyle().MarginLeft(2)
-	baseTrackListStyle = lipgloss.NewStyle().PaddingRight(3)
-	borderStyle        = lipgloss.RoundedBorder()
-	buttonBaseStyle    = lipgloss.NewStyle().Margin(0, 1)
-	focusedButtonStyle = buttonBaseStyle.Background(lipgloss.Color("#4A0549")).Foreground(lipgloss.Color("#FFFFFF"))
+	marginLeftStyle     = lipgloss.NewStyle().MarginLeft(2)
+	baseTrackListStyle  = lipgloss.NewStyle().PaddingRight(3)
+	borderStyle         = lipgloss.RoundedBorder()
+	actionBarStyle      = lipgloss.NewStyle().MarginLeft(2)
+	actionBarFocusStyle = lipgloss.NewStyle().Margin(1, 0, 0, 0).Border(borderStyle).Padding(0, 1)
+	actionBarBlurStyle  = lipgloss.NewStyle().Margin(1, 0, 0, 1).Padding(1, 1, 0, 1)
+	controlBaseStyle    = lipgloss.NewStyle().MarginRight(1)
+	controlFocusStyle   = controlBaseStyle.Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#4A0549")).Bold(true)
+	controlActiveStyle  = controlBaseStyle.Foreground(lipgloss.Color("#006400")).Bold(true)
+	controlDimStyle     = controlBaseStyle.Foreground(lipgloss.Color("#808080"))
 )
 
 // Focusable represents which view element is currently focused.
@@ -42,10 +52,73 @@ type focusable int
 // UI view constants.
 const (
 	viewList focusable = iota
+	viewFormatMP3
+	viewFormatFLAC
 	viewBackButton
 	viewDownloadButton
 	viewQuitButton
 )
+
+var actionFocusOrder = []focusable{
+	viewFormatMP3,
+	viewFormatFLAC,
+	viewBackButton,
+	viewDownloadButton,
+	viewQuitButton,
+}
+
+var downloadKeys = downloadKeyMap{
+	Next: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "next"),
+	),
+	Prev: key.NewBinding(
+		key.WithKeys("shift+tab"),
+		key.WithHelp("shift+tab", "prev"),
+	),
+	Left: key.NewBinding(
+		key.WithKeys("left", "h"),
+		key.WithHelp("left/right", "move controls"),
+	),
+	Right: key.NewBinding(
+		key.WithKeys("right", "l"),
+		key.WithHelp("", ""),
+	),
+	Activate: key.NewBinding(
+		key.WithKeys("enter", " "),
+		key.WithHelp("enter/space", "activate"),
+	),
+	FocusList: key.NewBinding(
+		key.WithKeys("esc", "up"),
+		key.WithHelp("esc/up", "tracks"),
+	),
+	Duplicates: key.NewBinding(
+		key.WithKeys("t", "T"),
+		key.WithHelp("t", "duplicates"),
+	),
+}
+
+type downloadKeyMap struct {
+	Next       key.Binding
+	Prev       key.Binding
+	Left       key.Binding
+	Right      key.Binding
+	Activate   key.Binding
+	FocusList  key.Binding
+	Duplicates key.Binding
+}
+
+func (k downloadKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Next, k.Left, k.Activate, k.FocusList, k.Duplicates}
+}
+
+func (k downloadKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Next, k.Prev},
+		{k.Left, k.Activate},
+		{k.FocusList, k.Duplicates},
+	}
+}
 
 // TrackProgress represents the download progress and state of a track.
 type TrackProgress struct {
@@ -54,6 +127,7 @@ type TrackProgress struct {
 	status   TrackStatus
 	errMsg   string
 	filename string
+	format   string
 }
 
 type DownloadStartMsg struct{}
@@ -71,6 +145,7 @@ type DownloadModel struct {
 	spinner   spinner.Model
 	progress  progress.Model
 	trackList list.Model
+	help      help.Model
 
 	// Download progress channels and tracking.
 	tpUpdateCh     chan TrackProgress
@@ -86,8 +161,11 @@ type DownloadModel struct {
 	isDownloading     bool
 	shutdownRequested bool
 	focusedView       focusable
+	lastActionFocus   focusable
 	selectedTrackInfo string
 	hideDuplicates    bool
+	windowWidth       int
+	windowHeight      int
 }
 
 func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) DownloadModel {
@@ -101,20 +179,23 @@ func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) Download
 		progress.WithoutPercentage(),
 	)
 
-	l := list.New([]list.Item{}, TrackListItem{}, 60, 30)
+	l := list.New([]list.Item{}, TrackListItem{}, 60, defaultTrackListHeight)
 	l.DisableQuitKeybindings()
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
-			key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "Toggle duplicates")),
+			downloadKeys.Duplicates,
 		}
 	}
 	l.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
-			key.NewBinding(key.WithKeys("t", "T"), key.WithHelp("t / T", "Toggle duplicates")),
+			downloadKeys.Duplicates,
 		}
 	}
+
+	h := help.New()
+	h.Width = defaultDownloadWidth
 
 	return DownloadModel{
 		client:            client,
@@ -122,8 +203,10 @@ func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) Download
 		spinner:           sp,
 		progress:          p,
 		trackList:         l,
+		help:              h,
 		tracksProgress:    []*TrackProgress{},
 		focusedView:       viewList,
+		lastActionFocus:   viewFormatMP3,
 		hideDuplicates:    false,
 		shutdownRequested: false,
 		selectedTrackInfo: "",
@@ -151,6 +234,7 @@ func (m *DownloadModel) Reset() {
 	m.isDownloading = false
 	m.shutdownRequested = false
 	m.focusedView = viewList
+	m.lastActionFocus = viewFormatMP3
 	m.selectedTrackInfo = ""
 	m.hideDuplicates = false
 	m.trackList.ResetFilter()
@@ -196,46 +280,38 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.windowWidth = msg.Width
+		m.windowHeight = msg.Height
+		m.resizeToWindow()
+
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "enter":
-			if m.focusedView == viewQuitButton {
-				if m.isDownloading {
-					m.requestShutdown("quit_button")
-					return m, nil
-				}
+		switch {
+		case key.Matches(msg, downloadKeys.Activate):
+			m, cmd = m.activateFocusedControl()
 
-				downloadLogger(m.client).Info("application quit requested",
-					"reason", "quit_button",
-					"is_downloading", false,
-				)
-				return m, tea.Quit
+		case key.Matches(msg, downloadKeys.Next):
+			m.focusNext()
+
+		case key.Matches(msg, downloadKeys.Prev):
+			m.focusPrevious()
+
+		case key.Matches(msg, downloadKeys.Right):
+			if m.focusedView != viewList {
+				m.focusNextAction()
 			}
-			if m.focusedView == viewBackButton {
-				if !m.isDownloading {
-					return m, func() tea.Msg { return BackToURLMsg{} }
-				}
-				break
+
+		case key.Matches(msg, downloadKeys.Left):
+			if m.focusedView != viewList {
+				m.focusPreviousAction()
 			}
-			if m.isDownloading || m.focusedView == viewList {
-				break
+
+		case key.Matches(msg, downloadKeys.FocusList):
+			if m.focusedView != viewList {
+				m.focusedView = viewList
 			}
-			if m.focusedView != viewDownloadButton {
-				break
-			}
-			m.isDownloading = true
-			m.resetState()
-			m.focusedView = viewList
-			m.tpUpdateCh = make(chan TrackProgress)
 
-			utils.CreateDirIfNotExists(outputDir)
-
-			cmd = m.downloadTracks(m.tpUpdateCh, m.tracksProgress)
-
-		case "tab":
-			m.cycleFocus()
-
-		case "t", "T":
+		case key.Matches(msg, downloadKeys.Duplicates):
 			if m.focusedView == viewList {
 				m.hideDuplicates = !m.hideDuplicates
 				m.updateTrackList()
@@ -272,7 +348,7 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 
 func (m DownloadModel) View() string {
 	header := renderHeader(m.downloadedCount, m.tracksTotalCount, m.downloadableCount, m.errorCount)
-	viewStr := marginLeftStyle.Render(header + m.renderProgress())
+	viewStr := marginLeftStyle.Render(header)
 	viewStr += "\n" + marginLeftStyle.Render(m.selectedTrackInfo) + "\n"
 
 	trackListStyle := baseTrackListStyle
@@ -281,37 +357,43 @@ func (m DownloadModel) View() string {
 	} else {
 		trackListStyle = trackListStyle.Margin(1)
 	}
-	viewStr += trackListStyle.Render(m.trackList.View()) + "\n\n"
-	viewStr += renderButtons(m)
+	viewStr += trackListStyle.Render(m.trackList.View()) + "\n"
+	viewStr += marginLeftStyle.Render(m.renderProgress())
+	viewStr += renderActionBar(m)
 	return viewStr
 }
 
+func (m *DownloadModel) resizeToWindow() {
+	if m.windowWidth <= 0 || m.windowHeight <= 0 {
+		return
+	}
+
+	contentWidth := m.windowWidth - 8
+	if contentWidth < 40 {
+		contentWidth = 40
+	}
+
+	m.progress.Width = contentWidth
+	m.help.Width = contentWidth
+	m.trackList.SetWidth(contentWidth)
+	m.trackList.SetHeight(m.availableTrackListHeight())
+}
+
+func (m DownloadModel) availableTrackListHeight() int {
+	reservedRows := 13
+	if m.windowHeight <= 0 {
+		return defaultTrackListHeight
+	}
+
+	height := m.windowHeight - reservedRows
+	if height < minTrackListHeight {
+		return minTrackListHeight
+	}
+	return height
+}
+
 func (m *DownloadModel) cycleFocus() {
-	if m.isDownloading && m.focusedView == viewBackButton {
-		m.focusedView = viewDownloadButton
-		return
-	}
-	if m.isDownloading {
-		switch m.focusedView {
-		case viewList:
-			m.focusedView = viewDownloadButton
-		case viewDownloadButton:
-			m.focusedView = viewQuitButton
-		case viewQuitButton:
-			m.focusedView = viewList
-		}
-		return
-	}
-	switch m.focusedView {
-	case viewList:
-		m.focusedView = viewBackButton
-	case viewBackButton:
-		m.focusedView = viewDownloadButton
-	case viewDownloadButton:
-		m.focusedView = viewQuitButton
-	case viewQuitButton:
-		m.focusedView = viewList
-	}
+	m.focusNext()
 }
 
 func (m *DownloadModel) downloadTracks(updCh chan TrackProgress, progressList []*TrackProgress) tea.Cmd {
@@ -323,6 +405,7 @@ func (m *DownloadModel) downloadTracks(updCh chan TrackProgress, progressList []
 		logger.Info("download session started",
 			"total_tracks", len(progressList),
 			"max_concurrent_downloads", maxConcurrentDownloads,
+			"format", m.downloadOptions.FormatOrDefault(),
 		)
 
 		for _, tp := range progressList {
@@ -386,6 +469,7 @@ func (m *DownloadModel) downloadTrack(tp *TrackProgress, wg *sync.WaitGroup, sem
 
 		if errors.Is(err, ya.ErrTrackAlreadyExists) {
 			tp.status = TrackStatusAlreadyExists
+			tp.format = downloadFormatFromFilename(filePath)
 			logger.LogTrack(slog.LevelInfo, trackCtx, "worker skipped",
 				"stage", "download_track",
 				"status", tp.status.String(),
@@ -405,6 +489,7 @@ func (m *DownloadModel) downloadTrack(tp *TrackProgress, wg *sync.WaitGroup, sem
 	} else {
 		tp.status = TrackStatusDownloaded
 		tp.filename = filePath
+		tp.format = downloadFormatFromFilename(filePath)
 		tp.errMsg = ""
 
 		logger.LogTrack(slog.LevelInfo, trackCtx, "worker finished",
@@ -423,6 +508,7 @@ func (m *DownloadModel) resetState() {
 			continue
 		}
 		tp.status = TrackStatusReady
+		tp.format = ""
 	}
 
 	m.downloadedCount = countStatus(m.tracksProgress, TrackStatusDownloaded)
@@ -443,6 +529,7 @@ func (m *DownloadModel) updateTrackList() {
 			uid:    tp.uid,
 			track:  tp.track,
 			status: tp.status,
+			format: tp.format,
 		})
 	}
 	m.trackList.SetItems(items)
@@ -488,38 +575,193 @@ func countStatus(tracks []*TrackProgress, status TrackStatus) int {
 }
 
 func renderHeader(completed, total, downloadable, errors int) string {
-	return fmt.Sprintf("Total tracks: %d\nTo download: %d\nCompleted: %d\nErrors: %d\n\n",
-		total, downloadable, completed, errors)
+	return strings.Join([]string{
+		renderCounter("Total tracks", total),
+		renderCounter("To download", downloadable),
+		renderCounter("Completed", completed),
+		renderCounter("Errors", errors),
+	}, "  ") + "\n"
 }
 
-func renderButtons(m DownloadModel) string {
-	downloadBtnStyle := buttonBaseStyle
-	quitBtnStyle := buttonBaseStyle
-	quitLabel := "[  Quit  ]"
+func renderCounter(label string, value int) string {
+	return dimGrayForeground.Render(label+":") + " " + fmt.Sprintf("%d", value)
+}
 
-	if m.shutdownRequested && m.isDownloading {
-		quitBtnStyle = dimGrayForeground.Margin(0, 1)
-		quitLabel = "[ Cancelling... ]"
+func (m DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
+	switch m.focusedView {
+	case viewFormatMP3:
+		if !m.isDownloading {
+			m.downloadOptions.AudioFormat = ya.AudioFormatMP3
+		}
+
+	case viewFormatFLAC:
+		if !m.isDownloading {
+			m.downloadOptions.AudioFormat = ya.AudioFormatFLAC
+		}
+
+	case viewBackButton:
+		if !m.isDownloading {
+			return m, func() tea.Msg { return BackToURLMsg{} }
+		}
+
+	case viewDownloadButton:
+		if m.isDownloading {
+			return m, nil
+		}
+		m.isDownloading = true
+		m.resetState()
+		m.focusedView = viewList
+		m.tpUpdateCh = make(chan TrackProgress)
+
+		utils.CreateDirIfNotExists(outputDir)
+		return m, m.downloadTracks(m.tpUpdateCh, m.tracksProgress)
+
+	case viewQuitButton:
+		if m.isDownloading {
+			m.requestShutdown("quit_button")
+			return m, nil
+		}
+
+		downloadLogger(m.client).Info("application quit requested",
+			"reason", "quit_button",
+			"is_downloading", false,
+		)
+		return m, tea.Quit
 	}
 
-	if m.focusedView == viewDownloadButton {
-		downloadBtnStyle = focusedButtonStyle
-	}
-	if m.focusedView == viewQuitButton && !(m.shutdownRequested && m.isDownloading) {
-		quitBtnStyle = focusedButtonStyle
-	}
+	return m, nil
+}
 
-	var backLabel string
-	switch {
-	case m.isDownloading:
-		backLabel = dimGrayForeground.Margin(0, 1).Render("[ Back to URL ]")
-	case m.focusedView == viewBackButton:
-		backLabel = focusedButtonStyle.Render("[ Back to URL ]")
+func (m *DownloadModel) focusNext() {
+	if m.focusedView == viewList {
+		m.focusFirstAction()
+		return
+	}
+	m.focusedView = viewList
+}
+
+func (m *DownloadModel) focusPrevious() {
+	if m.focusedView == viewList {
+		m.focusFirstAction()
+		return
+	}
+	m.focusedView = viewList
+}
+
+func (m *DownloadModel) focusFirstAction() {
+	if m.controlEnabled(m.lastActionFocus) {
+		m.focusedView = m.lastActionFocus
+		return
+	}
+	m.focusedView = firstEnabledAction(*m)
+}
+
+func (m *DownloadModel) focusNextAction() {
+	index := actionIndex(m.focusedView)
+	for offset := 1; offset <= len(actionFocusOrder); offset++ {
+		next := actionFocusOrder[(index+offset+len(actionFocusOrder))%len(actionFocusOrder)]
+		if m.controlEnabled(next) {
+			m.focusedView = next
+			m.lastActionFocus = next
+			return
+		}
+	}
+}
+
+func (m *DownloadModel) focusPreviousAction() {
+	index := actionIndex(m.focusedView)
+	for offset := 1; offset <= len(actionFocusOrder); offset++ {
+		previous := actionFocusOrder[(index-offset+len(actionFocusOrder))%len(actionFocusOrder)]
+		if m.controlEnabled(previous) {
+			m.focusedView = previous
+			m.lastActionFocus = previous
+			return
+		}
+	}
+}
+
+func firstEnabledAction(m DownloadModel) focusable {
+	for _, control := range actionFocusOrder {
+		if m.controlEnabled(control) {
+			return control
+		}
+	}
+	return viewList
+}
+
+func actionIndex(view focusable) int {
+	for i, control := range actionFocusOrder {
+		if control == view {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m DownloadModel) controlEnabled(control focusable) bool {
+	switch control {
+	case viewFormatMP3, viewFormatFLAC, viewBackButton, viewDownloadButton:
+		return !m.isDownloading
+	case viewQuitButton:
+		return true
 	default:
-		backLabel = buttonBaseStyle.Render("[ Back to URL ]")
+		return false
 	}
+}
 
-	return backLabel + "  " + downloadBtnStyle.Render("[ Download All ]") + "  " + quitBtnStyle.Render(quitLabel)
+func renderActionBar(m DownloadModel) string {
+	formatControls := lipgloss.JoinHorizontal(lipgloss.Center,
+		renderFormatSegment(m, viewFormatMP3, ya.AudioFormatMP3, "MP3"),
+		renderFormatSegment(m, viewFormatFLAC, ya.AudioFormatFLAC, "FLAC"),
+	)
+	actionControls := lipgloss.JoinHorizontal(lipgloss.Center,
+		renderActionControl(m, viewBackButton, "Back"),
+		renderActionControl(m, viewDownloadButton, "Download all"),
+		renderActionControl(m, viewQuitButton, quitControlLabel(m)),
+	)
+
+	formatRow := dimGrayForeground.Render("Format ") + formatControls
+	actionRow := dimGrayForeground.Render("Actions") + " " + actionControls
+	content := formatRow + "\n" + actionRow + "\n\n" + m.help.View(downloadKeys)
+	if m.focusedView == viewList {
+		return actionBarBlurStyle.Render(content)
+	}
+	return actionBarFocusStyle.Render(content)
+}
+
+func renderFormatSegment(m DownloadModel, control focusable, format ya.AudioFormat, label string) string {
+	focused := m.focusedView == control
+	active := m.downloadOptions.FormatOrDefault() == format
+	enabled := m.controlEnabled(control)
+	return renderControl(label, focused, active, enabled)
+}
+
+func renderActionControl(m DownloadModel, control focusable, label string) string {
+	return renderControl(label, m.focusedView == control, false, m.controlEnabled(control))
+}
+
+func renderControl(label string, focused bool, active bool, enabled bool) string {
+	text := fmt.Sprintf("[ %s ]", label)
+	style := controlBaseStyle
+	switch {
+	case !enabled:
+		style = controlDimStyle
+	case focused:
+		style = controlFocusStyle
+	case active:
+		style = controlActiveStyle
+	}
+	return style.Render(text)
+}
+
+func quitControlLabel(m DownloadModel) string {
+	if m.shutdownRequested && m.isDownloading {
+		return "Cancelling..."
+	}
+	if m.isDownloading {
+		return "Cancel"
+	}
+	return "Quit"
 }
 
 func handleDownloadsProgress(updCh chan TrackProgress) tea.Cmd {
@@ -575,6 +817,15 @@ func skipDownloadReason(status TrackStatus) (string, bool) {
 		return "already_exists", true
 	default:
 		return "", false
+	}
+}
+
+func downloadFormatFromFilename(filename string) string {
+	switch strings.ToLower(filepath.Ext(filename)) {
+	case ".flac":
+		return "FLAC"
+	default:
+		return "MP3"
 	}
 }
 

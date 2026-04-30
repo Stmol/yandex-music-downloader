@@ -77,6 +77,7 @@ type TrackListItem struct {
 	uid    string
 	track  *model.Track
 	status TrackStatus
+	format string
 }
 
 func (t TrackListItem) FilterValue() string {
@@ -147,7 +148,7 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 	titlePart := string([]rune(combined)[:len(titleRunes)+1])
 	descPart := string([]rune(combined)[len(titleRunes)+1:])
 	padding := strings.Repeat(" ", maxLen-utf8.RuneCountInString(combined)+2)
-	statusStr := fmt.Sprintf("%-15s", item.status.String())
+	statusStr := fmt.Sprintf("%-15s", item.statusLabel())
 
 	switch item.status {
 	case TrackStatusDuplicate:
@@ -184,7 +185,7 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 	}
 
 	if isSelected {
-		statusStr = fmt.Sprintf("%-15s", item.status.String())
+		statusStr = fmt.Sprintf("%-15s", item.statusLabel())
 		statusStr = selectedItemStyle.Render(statusStr)
 	}
 
@@ -197,6 +198,17 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 	)
 
 	fmt.Fprint(w, str)
+}
+
+func (t TrackListItem) statusLabel() string {
+	if t.status != TrackStatusDownloaded {
+		return t.status.String()
+	}
+	format := strings.TrimSpace(t.format)
+	if format == "" {
+		format = "MP3"
+	}
+	return t.status.String() + " " + format
 }
 
 func formatTrackNumber(index int, totalItems int) string {

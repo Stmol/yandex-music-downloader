@@ -15,8 +15,9 @@ A GUI application for downloading tracks from the Yandex Music streaming service
 
 -   Modern graphical user interface
 -   _Blazingly fast, powered by the Go programming language_
--   Download individual tracks and playlists in MP3 format
--   Add ID3 tags and embedded cover art to downloaded MP3 files
+-   Download individual tracks and playlists in MP3 format by default
+-   Optional lossless FLAC downloads with automatic fallback to the best available MP3
+-   Add metadata tags and embedded cover art to downloaded MP3 and FLAC files
 -   Duplicate detection in playlists
 -   Concurrent file downloads
 
@@ -72,6 +73,10 @@ For detailed instructions on how to obtain your token, refer to this [page](http
 ### 5. Download Preparation
 
 -   Upon valid URL input, the next screen displays a track listing with status indicators
+-   Use the action bar to choose a format for all tracks and run actions from one place
+-   Press `<Tab>` to move between the track list and controls, `<Left>`/`<Right>` to move inside controls, and `<Enter>`/`<Space>` to activate the focused control
+-   Format selection applies to the whole current queue; individual tracks still fall back to MP3 when FLAC is unavailable
+-   If FLAC is unavailable or cannot be downloaded, the app automatically falls back to the best available MP3
 -   Downloads are saved to `./downloads` in the application's working directory
 -   Track status indicators:
 
@@ -82,18 +87,20 @@ For detailed instructions on how to obtain your token, refer to this [page](http
     Already Exists - File exists in target directory
     Duplicate - Duplicate track in current playlist
     Not Available - Track unavailable (likely due to licensing restrictions)
-    ✅ - Download completed
+    ✅ MP3 - Download completed as MP3, including MP3 fallback from FLAC mode
+    ✅ FLAC - Download completed as lossless FLAC
 ```
 
 ![tracks list](assets/img_ready_to_download.png)
 
 ### 6. Download Process
 
--   Navigate to the `[ Download ]` button using `<tab>` and press `<Enter>`
+-   Focus `Download all` in the action bar and press `<Enter>` or `<Space>`
 -   The download process will start
 -   Track statuses update in real-time
+-   Completed tracks show the actual saved format in the status column, for example `✅ FLAC` or `✅ MP3`
 -   If needed, you can relaunch the app with `--timeout <seconds>` to limit how long a single file download may take
--   By default, each MP3 is tagged with title, artist, album metadata, Yandex track ID, and embedded cover art when available
+-   By default, each MP3 or FLAC is tagged with title, artist, album metadata, Yandex track ID, and embedded cover art when available
 -   If cover downloads are slow or expensive, relaunch with `--skip-cover=true`; text ID3 tags will still be written
 
 ![downloading](assets/img_download_in_progress.png)
@@ -102,14 +109,15 @@ For detailed instructions on how to obtain your token, refer to this [page](http
 
 -   The progress bar fills completely upon download completion
 -   Downloaded tracks are available in the `./downloads` directory
--   A track is marked as completed only after the MP3 file is saved and ID3 tags are written; cover download failures are ignored so they do not block the track
+-   A track is marked as completed only after the audio file is saved and metadata tags are written; cover download failures are ignored so they do not block the track
 
 ![download complete](assets/img_download_complete.png)
 
 ## Troubleshooting
 
--   If downloads fail, you can retry by clicking the `[ Download ]` button after the process completes
+-   If downloads fail, you can retry by focusing `Download all` after the process completes
 -   For persistent errors, try using your personal [authentication token](#authentication-token)
+-   In FLAC mode, a completed `✅ MP3` status means the app successfully used the MP3 fallback for that track
 -   You are welcome to open an issue or send a PR
 
 ## Acknowledgments

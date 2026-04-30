@@ -70,22 +70,24 @@ func TestAddTracks(t *testing.T) {
 	assert.Equal(t, 1, m.downloadableCount)
 }
 
-func TestCycleFocus(t *testing.T) {
+func TestCycleFocusMovesBetweenListAndActionGroupOnly(t *testing.T) {
 	m := NewDownloadModel(nil)
 
 	assert.Equal(t, viewList, m.focusedView)
 
 	m.cycleFocus()
-	assert.Equal(t, viewBackButton, m.focusedView)
-
-	m.cycleFocus()
-	assert.Equal(t, viewDownloadButton, m.focusedView)
-
-	m.cycleFocus()
-	assert.Equal(t, viewQuitButton, m.focusedView)
+	assert.Equal(t, viewFormatMP3, m.focusedView)
 
 	m.cycleFocus()
 	assert.Equal(t, viewList, m.focusedView)
+
+	m.focusedView = viewDownloadButton
+	m.lastActionFocus = viewDownloadButton
+	m.cycleFocus()
+	assert.Equal(t, viewList, m.focusedView)
+
+	m.cycleFocus()
+	assert.Equal(t, viewDownloadButton, m.focusedView)
 }
 
 func TestCycleFocusSkipsBackWhenDownloading(t *testing.T) {
@@ -93,22 +95,95 @@ func TestCycleFocusSkipsBackWhenDownloading(t *testing.T) {
 	m.isDownloading = true
 
 	m.cycleFocus()
-	assert.Equal(t, viewDownloadButton, m.focusedView)
-
-	m.cycleFocus()
 	assert.Equal(t, viewQuitButton, m.focusedView)
 
 	m.cycleFocus()
 	assert.Equal(t, viewList, m.focusedView)
 }
 
-func TestCycleFocusMovesOffBackWhenDownloadingStarts(t *testing.T) {
+func TestCycleFocusMovesOffDisabledControlWhenDownloadingStarts(t *testing.T) {
 	m := NewDownloadModel(nil)
 	m.focusedView = viewBackButton
 	m.isDownloading = true
 
 	m.cycleFocus()
-	assert.Equal(t, viewDownloadButton, m.focusedView)
+	assert.Equal(t, viewList, m.focusedView)
+}
+
+func TestToggleAudioFormat(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.focusedView = viewFormatFLAC
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.Equal(t, ya.AudioFormatFLAC, updated.downloadOptions.FormatOrDefault())
+
+	updated.focusedView = viewFormatMP3
+	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeySpace})
+	assert.Equal(t, ya.AudioFormatMP3, updated.downloadOptions.FormatOrDefault())
+}
+
+func TestToggleAudioFormatIsDisabledWhileDownloading(t *testing.T) {
+	m := NewDownloadModel(nil, ya.DownloadOptions{AudioFormat: ya.AudioFormatMP3})
+	m.focusedView = viewFormatFLAC
+	m.isDownloading = true
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	assert.Equal(t, ya.AudioFormatMP3, updated.downloadOptions.FormatOrDefault())
+}
+
+func TestRenderFormatToggleShowsSelectedFormat(t *testing.T) {
+	m := NewDownloadModel(nil, ya.DownloadOptions{AudioFormat: ya.AudioFormatFLAC})
+
+	assert.Contains(t, renderActionBar(m), "Format")
+	assert.Contains(t, renderActionBar(m), "MP3")
+	assert.Contains(t, renderActionBar(m), "FLAC")
+}
+
+func TestArrowKeysMoveAcrossActionControls(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.focusedView = viewFormatMP3
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	assert.Equal(t, viewFormatFLAC, updated.focusedView)
+
+	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRight})
+	assert.Equal(t, viewBackButton, updated.focusedView)
+
+	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	assert.Equal(t, viewFormatFLAC, updated.focusedView)
+}
+
+func TestActionBarActivationUsesEnterAndSpace(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.focusedView = viewFormatFLAC
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	assert.Equal(t, ya.AudioFormatFLAC, updated.downloadOptions.FormatOrDefault())
+
+	updated.focusedView = viewFormatMP3
+	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.Equal(t, ya.AudioFormatMP3, updated.downloadOptions.FormatOrDefault())
+}
+
+func TestWindowResizeShrinksTrackListToAvailableHeight(t *testing.T) {
+	m := NewDownloadModel(nil)
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	assert.Equal(t, 92, updated.trackList.Width())
+	assert.Equal(t, 17, updated.trackList.Height())
+	assert.Equal(t, 92, updated.progress.Width)
+	assert.Equal(t, 92, updated.help.Width)
+}
+
+func TestWindowResizeKeepsMinimumTrackListHeight(t *testing.T) {
+	m := NewDownloadModel(nil)
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 30, Height: 12})
+
+	assert.Equal(t, 40, updated.trackList.Width())
+	assert.Equal(t, minTrackListHeight, updated.trackList.Height())
 }
 
 func TestResetState(t *testing.T) {
@@ -169,6 +244,13 @@ func TestGetTrackInfo(t *testing.T) {
 	assert.Equal(t, "Download failed", info)
 }
 
+func TestDownloadFormatFromFilename(t *testing.T) {
+	assert.Equal(t, "FLAC", downloadFormatFromFilename("Artist - Song.flac"))
+	assert.Equal(t, "FLAC", downloadFormatFromFilename("Artist - Song.FLAC"))
+	assert.Equal(t, "MP3", downloadFormatFromFilename("Artist - Song.mp3"))
+	assert.Equal(t, "MP3", downloadFormatFromFilename(""))
+}
+
 func TestCountStatus(t *testing.T) {
 	tracks := []*TrackProgress{
 		{status: TrackStatusReady},
@@ -185,8 +267,15 @@ func TestCountStatus(t *testing.T) {
 
 func TestRenderHeader(t *testing.T) {
 	header := renderHeader(5, 10, 8, 2)
-	expected := "Total tracks: 10\nTo download: 8\nCompleted: 5\nErrors: 2\n\n"
-	assert.Equal(t, expected, header)
+	assert.Contains(t, header, "Total tracks:")
+	assert.Contains(t, header, "10")
+	assert.Contains(t, header, "To download:")
+	assert.Contains(t, header, "8")
+	assert.Contains(t, header, "Completed:")
+	assert.Contains(t, header, "5")
+	assert.Contains(t, header, "Errors:")
+	assert.Contains(t, header, "2")
+	assert.NotContains(t, header, "\nTo download")
 }
 
 func TestSortTracksByTitle(t *testing.T) {

@@ -1,6 +1,7 @@
 package ya
 
 import (
+	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -9,10 +10,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"ya-music/utils"
+	"ya-music/ya/lossless"
 	"ya-music/ya/model"
 )
 
@@ -38,6 +41,12 @@ const (
 
 var ErrTrackAlreadyExists = errors.New("track file already exists")
 
+type losslessTrackDownloader interface {
+	Download(reqCtx utils.RequestLogContext, trackID string) (lossless.DownloadResult, error)
+}
+
+type trackDownloadFunc func(track model.Track, outputDir string, options DownloadOptions) (string, error)
+
 type YaClient interface {
 	TrackInfo(id string) (*model.Track, error)
 	UsersPlaylist(id string, username string) (*model.Playlist, error)
@@ -49,10 +58,12 @@ type YaClient interface {
 }
 
 type Client struct {
-	httpClient *utils.HttpClient
-	logger     *utils.DownloadLogger
-	userUID    int
-	username   string
+	httpClient         *utils.HttpClient
+	logger             *utils.DownloadLogger
+	losslessDownloader losslessTrackDownloader
+	mp3Downloader      trackDownloadFunc
+	userUID            int
+	username           string
 }
 
 func NewClient(httpClient *utils.HttpClient) *Client {
@@ -61,8 +72,9 @@ func NewClient(httpClient *utils.HttpClient) *Client {
 	}
 
 	return &Client{
-		httpClient: httpClient,
-		logger:     httpClient.Logger(),
+		httpClient:         httpClient,
+		logger:             httpClient.Logger(),
+		losslessDownloader: lossless.NewDownloader(httpClient),
 	}
 }
 
@@ -238,12 +250,33 @@ func (c *Client) DownloadTrack(track model.Track, outputDir string) (string, err
 }
 
 func (c *Client) DownloadTrackWithOptions(track model.Track, outputDir string, options DownloadOptions) (string, error) {
+	if options.FormatOrDefault() == AudioFormatFLAC {
+		filename, err := c.downloadTrackLossless(track, outputDir, options)
+		if err == nil || errors.Is(err, ErrTrackAlreadyExists) {
+			return filename, err
+		}
+
+		c.logTrack(slog.LevelWarn, utils.NewTrackLogContext(track), "lossless fallback started",
+			"stage", "lossless_fallback",
+			"error", err,
+		)
+	}
+
+	return c.downloadTrackMP3(track, outputDir, options)
+}
+
+func (c *Client) downloadTrackMP3(track model.Track, outputDir string, options DownloadOptions) (string, error) {
+	if c.mp3Downloader != nil {
+		return c.mp3Downloader(track, outputDir, options)
+	}
+
 	trackCtx := utils.NewTrackLogContext(track)
 	filename := buildTrackFilename(track, outputDir)
 	c.logTrack(slog.LevelInfo, trackCtx, "download started",
 		"stage", "start",
 		"filename", filename,
 		"skip_cover", options.SkipCover,
+		"format", AudioFormatMP3,
 	)
 
 	exists, err := utils.FileExists(filename)
@@ -325,6 +358,106 @@ func (c *Client) DownloadTrackWithOptions(track model.Track, outputDir string, o
 	return filename, nil
 }
 
+func (c *Client) downloadTrackLossless(track model.Track, outputDir string, options DownloadOptions) (string, error) {
+	trackCtx := utils.NewTrackLogContext(track)
+	filename := buildTrackFilenameWithExtension(track, outputDir, ".flac")
+	c.logTrack(slog.LevelInfo, trackCtx, "download started",
+		"stage", "start",
+		"filename", filename,
+		"skip_cover", options.SkipCover,
+		"format", AudioFormatFLAC,
+	)
+
+	exists, err := utils.FileExists(filename)
+	if err != nil {
+		c.logTrackFailure(trackCtx, "precheck", err,
+			"filename", filename,
+		)
+		return "", fmt.Errorf("failed to inspect destination file: %w", err)
+	}
+	if exists {
+		c.logTrack(slog.LevelInfo, trackCtx, "skipped",
+			"stage", "precheck",
+			"reason", "already_exists",
+			"filename", filename,
+			"format", AudioFormatFLAC,
+		)
+		return filename, fmt.Errorf("%w: %s", ErrTrackAlreadyExists, filename)
+	}
+
+	result, err := c.losslessDownloader.Download(c.requestContext(trackCtx, "lossless_info", "fetch_lossless_download_info"), track.ID.String())
+	if err != nil {
+		c.logTrackFailure(trackCtx, "lossless_info", err)
+		return "", fmt.Errorf("failed to get lossless download info: %w", err)
+	}
+	if !bytes.HasPrefix(result.Data, []byte("fLaC")) {
+		err := fmt.Errorf("lossless response is not a flac stream")
+		c.logTrackFailure(trackCtx, "lossless_download", err,
+			"codec", result.Info.Codec,
+		)
+		return "", err
+	}
+
+	c.logTrack(slog.LevelInfo, trackCtx, "download option selected",
+		"stage", "select_lossless",
+		"bitrate_kbps", result.Info.Bitrate,
+		"codec", result.Info.Codec,
+		"quality", result.Info.Quality,
+	)
+
+	coverCh := c.startCoverDownload(track, filename, options)
+	tempFilename, err := writeTempAudioFile(filename, result.Data)
+	if err != nil {
+		cover := c.waitCoverDownload(trackCtx, coverCh)
+		if cover.filename != "" {
+			c.removeCoverFile(trackCtx, cover.filename)
+		}
+		c.logTrackFailure(trackCtx, "download_file", err,
+			"filename", filename,
+			"format", AudioFormatFLAC,
+		)
+		return "", fmt.Errorf("failed to write lossless file: %w", err)
+	}
+
+	cleanupTemp := true
+	defer func() {
+		if cleanupTemp {
+			_ = os.Remove(tempFilename)
+		}
+	}()
+
+	cover := c.waitCoverDownload(trackCtx, coverCh)
+	if cover.filename != "" {
+		defer c.removeCoverFile(trackCtx, cover.filename)
+	}
+
+	if err := writeFLACTags(tempFilename, track, cover.filename); err != nil {
+		c.logTrackFailure(trackCtx, "flac_tags", err,
+			"filename", filename,
+			"cover_filename", cover.filename,
+		)
+		return filename, fmt.Errorf("failed to write flac tags: %w", err)
+	}
+
+	if err := os.Rename(tempFilename, filename); err != nil {
+		c.logTrackFailure(trackCtx, "download_file", err,
+			"filename", filename,
+			"temp_filename", tempFilename,
+			"format", AudioFormatFLAC,
+		)
+		return "", fmt.Errorf("failed to save lossless file: %w", err)
+	}
+	cleanupTemp = false
+
+	c.logTrack(slog.LevelInfo, trackCtx, "success",
+		"stage", "flac_tags",
+		"filename", filename,
+		"cover_filename", cover.filename,
+	)
+
+	return filename, nil
+}
+
 func (c *Client) waitCoverDownload(trackCtx utils.TrackLogContext, coverCh <-chan coverDownloadResult) coverDownloadResult {
 	cover := <-coverCh
 	if cover.err != nil {
@@ -338,7 +471,14 @@ func (c *Client) waitCoverDownload(trackCtx utils.TrackLogContext, coverCh <-cha
 }
 
 func buildTrackFilename(track model.Track, outputDir string) string {
-	return filepath.Join(outputDir, utils.SanitizeFilename(trackFilenameBase(track))+".mp3")
+	return buildTrackFilenameWithExtension(track, outputDir, ".mp3")
+}
+
+func buildTrackFilenameWithExtension(track model.Track, outputDir string, extension string) string {
+	if !strings.HasPrefix(extension, ".") {
+		extension = "." + extension
+	}
+	return filepath.Join(outputDir, utils.SanitizeFilename(trackFilenameBase(track))+extension)
 }
 
 func trackFilenameBase(track model.Track) string {
@@ -386,6 +526,31 @@ func pickBestBitrate(info []model.DownloadInfo) model.DownloadInfo {
 	})
 
 	return info[0]
+}
+
+func writeTempAudioFile(destination string, data []byte) (string, error) {
+	tempFile, err := os.CreateTemp(filepath.Dir(destination), filepath.Base(destination)+".*.part")
+	if err != nil {
+		return "", fmt.Errorf("error creating temp file: %w", err)
+	}
+	tempFilename := tempFile.Name()
+	cleanup := true
+	defer func() {
+		_ = tempFile.Close()
+		if cleanup {
+			_ = os.Remove(tempFilename)
+		}
+	}()
+
+	if _, err := tempFile.Write(data); err != nil {
+		return "", fmt.Errorf("error writing temp file: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return "", fmt.Errorf("error closing temp file: %w", err)
+	}
+
+	cleanup = false
+	return tempFilename, nil
 }
 
 func (c *Client) requestContext(trackCtx utils.TrackLogContext, stage, operation string) utils.RequestLogContext {
