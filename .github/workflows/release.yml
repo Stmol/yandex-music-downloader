@@ -28,6 +28,21 @@ jobs:
       - name: Build release artifacts
         run: bash scripts/build.sh
 
+      - name: Extract release notes from changelog
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          awk -v version="$TAG_NAME" '
+            $0 ~ "^## " version "([[:space:]]|$)" { capture=1; next }
+            capture && /^## / { exit }
+            capture { print }
+          ' CHANGELOG.md > release_notes.md
+
+          if [ ! -s release_notes.md ]; then
+            echo "Failed to extract release notes for $TAG_NAME from CHANGELOG.md" >&2
+            exit 1
+          fi
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -35,4 +50,4 @@ jobs:
         run: |
           gh release create "$TAG_NAME" build/*.zip \
             --title "$TAG_NAME" \
-            --generate-notes
+            --notes-file release_notes.md

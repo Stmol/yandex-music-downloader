@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.7 - Unreleased
+## v1.7 - 2026-05-01
 - added a lossless FLAC download mode alongside the existing MP3 flow; MP3 remains the default format
 - added fallback-friendly download behavior: when FLAC is unavailable, invalid, fails to download, or cannot be tagged, the app automatically retries the same track as the best available MP3
 - added FLAC metadata writing with Vorbis comments and embedded cover artwork, including title, artists, album, album artist, genre, date, track/disc numbers, Yandex track ID, and a Yandex Music track URL comment
