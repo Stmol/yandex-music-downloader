@@ -247,6 +247,8 @@ func TestGetTrackInfo(t *testing.T) {
 func TestDownloadFormatFromFilename(t *testing.T) {
 	assert.Equal(t, "FLAC", downloadFormatFromFilename("Artist - Song.flac"))
 	assert.Equal(t, "FLAC", downloadFormatFromFilename("Artist - Song.FLAC"))
+	assert.Equal(t, "M4A", downloadFormatFromFilename("Artist - Song.m4a"))
+	assert.Equal(t, "M4A", downloadFormatFromFilename("Artist - Song.MP4"))
 	assert.Equal(t, "MP3", downloadFormatFromFilename("Artist - Song.mp3"))
 	assert.Equal(t, "MP3", downloadFormatFromFilename(""))
 }
@@ -346,13 +348,48 @@ func TestQuitButtonCancelsActiveDownloads(t *testing.T) {
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	assert.True(t, updated.shutdownRequested)
+	assert.False(t, updated.quitAfterCancel)
 	assert.Nil(t, cmd)
+}
+
+func TestDownloadEndDoesNotQuitAfterCancelButtonRequest(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.isDownloading = true
+	m.shutdownRequested = true
+
+	updated, cmd := m.Update(DownloadEndMsg{})
+
+	assert.False(t, updated.isDownloading)
+	assert.False(t, updated.shutdownRequested)
+	assert.Nil(t, cmd)
+}
+
+func TestDownloadEndRestoresCanceledTracksToReady(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.isDownloading = true
+	m.shutdownRequested = true
+	m.tracksProgress = []*TrackProgress{
+		{status: TrackStatusDownloaded, filename: "done.mp3"},
+		{status: TrackStatusError, errMsg: "context canceled"},
+		{status: TrackStatusDownloading},
+	}
+
+	updated, _ := m.Update(DownloadEndMsg{})
+
+	assert.Equal(t, TrackStatusDownloaded, updated.tracksProgress[0].status)
+	assert.Equal(t, TrackStatusReady, updated.tracksProgress[1].status)
+	assert.Empty(t, updated.tracksProgress[1].errMsg)
+	assert.Equal(t, TrackStatusReady, updated.tracksProgress[2].status)
+	assert.Equal(t, 1, updated.downloadedCount)
+	assert.Equal(t, 2, updated.downloadableCount)
+	assert.Equal(t, 0, updated.errorCount)
 }
 
 func TestDownloadEndQuitsAfterShutdownRequest(t *testing.T) {
 	m := NewDownloadModel(nil)
 	m.isDownloading = true
 	m.shutdownRequested = true
+	m.quitAfterCancel = true
 
 	updated, cmd := m.Update(DownloadEndMsg{})
 

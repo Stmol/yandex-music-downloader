@@ -42,7 +42,8 @@ const (
 var ErrTrackAlreadyExists = errors.New("track file already exists")
 
 type losslessTrackDownloader interface {
-	Download(reqCtx utils.RequestLogContext, trackID string) (lossless.DownloadResult, error)
+	GetDownloadInfo(reqCtx utils.RequestLogContext, trackID string, userUID int) (lossless.DownloadInfo, error)
+	DownloadAudio(reqCtx utils.RequestLogContext, info lossless.DownloadInfo) ([]byte, error)
 }
 
 type trackDownloadFunc func(track model.Track, outputDir string, options DownloadOptions) (string, error)
@@ -97,6 +98,14 @@ func (c *Client) Cancel() {
 	}
 
 	c.httpClient.Cancel()
+}
+
+func (c *Client) ResetCancel() {
+	if c == nil || c.httpClient == nil {
+		return
+	}
+
+	c.httpClient.ResetCancel()
 }
 
 func (c *Client) AccountStatus() (*model.Account, error) {
@@ -381,12 +390,30 @@ func (c *Client) downloadTrackMP3(track model.Track, outputDir string, options D
 
 func (c *Client) downloadTrackLossless(track model.Track, outputDir string, options DownloadOptions) (string, error) {
 	trackCtx := utils.NewTrackLogContext(track)
-	filename := buildTrackFilenameWithExtension(track, outputDir, ".flac")
 	c.logTrack(slog.LevelInfo, trackCtx, "download started",
 		"stage", "start",
-		"filename", filename,
 		"skip_cover", options.SkipCover,
 		"format", AudioFormatFLAC,
+	)
+
+	if c.userUID == 0 {
+		if _, err := c.AccountStatus(); err != nil {
+			c.logTrackFailure(trackCtx, "account_status", err)
+			return "", fmt.Errorf("failed to verify account status: %w", err)
+		}
+	}
+
+	info, err := c.losslessDownloader.GetDownloadInfo(c.requestContext(trackCtx, "lossless_info", "fetch_lossless_download_info"), track.ID.String(), c.userUID)
+	if err != nil {
+		c.logTrackFailure(trackCtx, "lossless_info", err)
+		return "", fmt.Errorf("failed to get lossless download info: %w", err)
+	}
+
+	filename := buildTrackFilenameWithExtension(track, outputDir, losslessExtensionForCodec(info.Codec))
+	c.logTrack(slog.LevelInfo, trackCtx, "lossless target resolved",
+		"stage", "resolve_lossless_target",
+		"filename", filename,
+		"codec", info.Codec,
 	)
 
 	exists, err := utils.FileExists(filename)
@@ -406,33 +433,23 @@ func (c *Client) downloadTrackLossless(track model.Track, outputDir string, opti
 		return filename, fmt.Errorf("%w: %s", ErrTrackAlreadyExists, filename)
 	}
 
-	result, err := c.losslessDownloader.Download(c.requestContext(trackCtx, "lossless_info", "fetch_lossless_download_info"), track.ID.String())
-	if err != nil {
-		c.logTrackFailure(trackCtx, "lossless_info", err)
-		return "", fmt.Errorf("failed to get lossless download info: %w", err)
-	}
-	if !bytes.HasPrefix(result.Data, []byte("fLaC")) {
-		err := fmt.Errorf("lossless response is not a flac stream")
-		c.logTrackFailure(trackCtx, "lossless_download", err,
-			"codec", result.Info.Codec,
-		)
-		return "", err
-	}
-
 	c.logTrack(slog.LevelInfo, trackCtx, "download option selected",
 		"stage", "select_lossless",
-		"bitrate_kbps", result.Info.Bitrate,
-		"codec", result.Info.Codec,
-		"quality", result.Info.Quality,
+		"bitrate_kbps", info.Bitrate,
+		"codec", info.Codec,
+		"quality", info.Quality,
 	)
 
-	coverCh := c.startCoverDownload(track, filename, options)
-	tempFilename, err := writeTempAudioFile(filename, result.Data)
+	data, err := c.losslessDownloader.DownloadAudio(c.requestContext(trackCtx, "lossless_download", "download_lossless_audio"), info)
 	if err != nil {
-		cover := c.waitCoverDownload(trackCtx, coverCh)
-		if cover.filename != "" {
-			c.removeCoverFile(trackCtx, cover.filename)
-		}
+		c.logTrackFailure(trackCtx, "lossless_download", err,
+			"codec", info.Codec,
+		)
+		return "", fmt.Errorf("failed to download lossless audio: %w", err)
+	}
+
+	tempFilename, err := writeTempAudioFile(filename, data)
+	if err != nil {
 		c.logTrackFailure(trackCtx, "download_file", err,
 			"filename", filename,
 			"format", AudioFormatFLAC,
@@ -447,17 +464,43 @@ func (c *Client) downloadTrackLossless(track model.Track, outputDir string, opti
 		}
 	}()
 
-	cover := c.waitCoverDownload(trackCtx, coverCh)
-	if cover.filename != "" {
-		defer c.removeCoverFile(trackCtx, cover.filename)
-	}
+	coverFilename := ""
+	switch strings.ToLower(strings.TrimSpace(info.Codec)) {
+	case "flac":
+		if !bytes.HasPrefix(data, []byte("fLaC")) {
+			err := fmt.Errorf("lossless response is not a flac stream")
+			c.logTrackFailure(trackCtx, "lossless_download", err,
+				"codec", info.Codec,
+			)
+			return "", err
+		}
 
-	if err := writeFLACTags(tempFilename, track, cover.filename); err != nil {
-		c.logTrackFailure(trackCtx, "flac_tags", err,
+		coverCh := c.startCoverDownload(track, filename, options)
+		cover := c.waitCoverDownload(trackCtx, coverCh)
+		if cover.filename != "" {
+			coverFilename = cover.filename
+			defer c.removeCoverFile(trackCtx, cover.filename)
+		}
+
+		if err := writeFLACTags(tempFilename, track, cover.filename); err != nil {
+			c.logTrackFailure(trackCtx, "flac_tags", err,
+				"filename", filename,
+				"cover_filename", cover.filename,
+			)
+			return filename, fmt.Errorf("failed to write flac tags: %w", err)
+		}
+	case "flac-mp4":
+		c.logTrack(slog.LevelWarn, trackCtx, "lossless metadata skipped",
+			"stage", "lossless_tags",
+			"codec", info.Codec,
 			"filename", filename,
-			"cover_filename", cover.filename,
 		)
-		return filename, fmt.Errorf("failed to write flac tags: %w", err)
+	default:
+		err := fmt.Errorf("%w: codec %q", lossless.ErrNoFLACDownloadInfo, info.Codec)
+		c.logTrackFailure(trackCtx, "lossless_download", err,
+			"codec", info.Codec,
+		)
+		return "", err
 	}
 
 	if err := os.Rename(tempFilename, filename); err != nil {
@@ -471,9 +514,9 @@ func (c *Client) downloadTrackLossless(track model.Track, outputDir string, opti
 	cleanupTemp = false
 
 	c.logTrack(slog.LevelInfo, trackCtx, "success",
-		"stage", "flac_tags",
+		"stage", "lossless_complete",
 		"filename", filename,
-		"cover_filename", cover.filename,
+		"cover_filename", coverFilename,
 	)
 
 	return filename, nil
@@ -572,6 +615,15 @@ func writeTempAudioFile(destination string, data []byte) (string, error) {
 
 	cleanup = false
 	return tempFilename, nil
+}
+
+func losslessExtensionForCodec(codec string) string {
+	switch strings.ToLower(strings.TrimSpace(codec)) {
+	case "flac-mp4":
+		return ".m4a"
+	default:
+		return ".flac"
+	}
 }
 
 func (c *Client) requestContext(trackCtx utils.TrackLogContext, stage, operation string) utils.RequestLogContext {

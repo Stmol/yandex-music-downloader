@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	defaultSignKey = "p93jhgh689SBReK6ghtw62"
+	defaultSignKey = "7tvSmFbyf5hJnIHhCimDDD"
 	defaultBaseURL = "https://api.music.yandex.net"
 )
 
@@ -28,6 +28,7 @@ var (
 
 type HTTPClient interface {
 	GetWithContext(reqCtx utils.RequestLogContext, url string) ([]byte, error)
+	GetWithContextAndHeaders(reqCtx utils.RequestLogContext, url string, headers map[string]string) ([]byte, error)
 	DownloadBytesWithContext(reqCtx utils.RequestLogContext, url string) ([]byte, error)
 }
 
@@ -75,8 +76,8 @@ func NewDownloader(httpClient HTTPClient) *Downloader {
 	}
 }
 
-func (d *Downloader) Download(reqCtx utils.RequestLogContext, trackID string) (DownloadResult, error) {
-	info, err := d.GetDownloadInfo(reqCtx, trackID)
+func (d *Downloader) Download(reqCtx utils.RequestLogContext, trackID string, userUID int) (DownloadResult, error) {
+	info, err := d.GetDownloadInfo(reqCtx, trackID, userUID)
 	if err != nil {
 		return DownloadResult{}, err
 	}
@@ -92,13 +93,13 @@ func (d *Downloader) Download(reqCtx utils.RequestLogContext, trackID string) (D
 	}, nil
 }
 
-func (d *Downloader) GetDownloadInfo(reqCtx utils.RequestLogContext, trackID string) (DownloadInfo, error) {
+func (d *Downloader) GetDownloadInfo(reqCtx utils.RequestLogContext, trackID string, userUID int) (DownloadInfo, error) {
 	if d == nil || d.httpClient == nil {
 		return DownloadInfo{}, fmt.Errorf("lossless downloader is not configured")
 	}
 
 	endpoint := BuildFileInfoURL(d.baseURL, trackID, d.now().Unix())
-	body, err := d.httpClient.GetWithContext(reqCtx, endpoint)
+	body, err := d.httpClient.GetWithContextAndHeaders(reqCtx, endpoint, buildFileInfoHeaders(userUID))
 	if err != nil {
 		return DownloadInfo{}, err
 	}
@@ -107,7 +108,7 @@ func (d *Downloader) GetDownloadInfo(reqCtx utils.RequestLogContext, trackID str
 	if err != nil {
 		return DownloadInfo{}, err
 	}
-	if !strings.EqualFold(info.Codec, "flac") {
+	if !isSupportedLosslessCodec(info.Codec) {
 		return DownloadInfo{}, fmt.Errorf("%w: codec %q", ErrNoFLACDownloadInfo, info.Codec)
 	}
 	if len(info.URLs) == 0 {
@@ -152,7 +153,7 @@ func BuildFileInfoURL(baseURL, trackID string, timestamp int64) string {
 	values.Set("trackId", trackID)
 	values.Set("quality", "lossless")
 	values.Set("codecs", strings.Join(supportedCodecs(), ","))
-	values.Set("transports", "encraw")
+	values.Set("transports", "raw")
 	values.Set("sign", SignRequest(timestamp, trackID))
 
 	return strings.TrimRight(baseURL, "/") + "/get-file-info?" + values.Encode()
@@ -160,7 +161,7 @@ func BuildFileInfoURL(baseURL, trackID string, timestamp int64) string {
 
 func SignRequest(timestamp int64, trackID string) string {
 	signData := fmt.Sprintf(
-		"%d%slossless%sencraw",
+		"%d%slossless%sraw",
 		timestamp,
 		trackID,
 		strings.Join(supportedCodecs(), ""),
@@ -221,11 +222,34 @@ func DecryptData(data []byte, key string) ([]byte, error) {
 func supportedCodecs() []string {
 	return []string{
 		"flac",
-		"flac-mp4",
-		"mp3",
 		"aac",
 		"he-aac",
+		"mp3",
+		"flac-mp4",
 		"aac-mp4",
 		"he-aac-mp4",
+	}
+}
+
+func buildFileInfoHeaders(userUID int) map[string]string {
+	headers := map[string]string{
+		"User-Agent":                             "YandexMusicAPI/1.0.0",
+		"x-yandex-music-client":                  "YandexMusicWebNext/1.0.0",
+		"x-yandex-music-without-invocation-info": "1",
+		"Referer":                                "https://music.yandex.ru/",
+		"Origin":                                 "https://music.yandex.ru",
+	}
+	if userUID > 0 {
+		headers["x-yandex-music-multi-auth-user-id"] = fmt.Sprintf("%d", userUID)
+	}
+	return headers
+}
+
+func isSupportedLosslessCodec(codec string) bool {
+	switch strings.ToLower(strings.TrimSpace(codec)) {
+	case "flac", "flac-mp4":
+		return true
+	default:
+		return false
 	}
 }

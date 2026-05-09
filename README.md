@@ -16,7 +16,7 @@ A GUI application for downloading tracks from the Yandex Music streaming service
 -   Modern graphical user interface
 -   _Blazingly fast, powered by the Go programming language_
 -   Download individual tracks, albums, and playlists in MP3 format by default
--   Optional lossless FLAC downloads with automatic fallback to the best available MP3
+-   Optional lossless downloads with automatic fallback to the best available MP3
 -   Add metadata tags and embedded cover art to downloaded MP3 and FLAC files
 -   Duplicate detection in playlists
 -   Concurrent file downloads
@@ -77,7 +77,8 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 -   Upon valid URL input, the next screen displays a track listing with status indicators
 -   Use the action bar to choose a format for all tracks and run actions from one place
 -   Press `<Tab>` to move between the track list and controls, `<Left>`/`<Right>` to move inside controls, and `<Enter>`/`<Space>` to activate the focused control
--   Format selection applies to the whole current queue; individual tracks still fall back to MP3 when FLAC is unavailable
+-   Format selection applies to the whole current queue; individual tracks still fall back to MP3 when lossless is unavailable
+-   Depending on the source returned by Yandex Music, a lossless track may be saved as either `FLAC` or `M4A`
 -   If FLAC is unavailable or cannot be downloaded, the app automatically falls back to the best available MP3
 -   Downloads are saved to `./downloads` in the application's working directory
 -   Track status indicators:
@@ -91,6 +92,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
     Not Available - Track unavailable (likely due to licensing restrictions)
     ✅ MP3 - Download completed as MP3, including MP3 fallback from FLAC mode
     ✅ FLAC - Download completed as lossless FLAC
+    ✅ M4A - Download completed as lossless M4A
 ```
 
 ![tracks list](assets/img_ready_to_download.png)
@@ -100,7 +102,8 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 -   Focus `Download all` in the action bar and press `<Enter>` or `<Space>`
 -   The download process will start
 -   Track statuses update in real-time
--   Completed tracks show the actual saved format in the status column, for example `✅ FLAC` or `✅ MP3`
+-   Completed tracks show the actual saved format in the status column, for example `✅ FLAC`, `✅ M4A`, or `✅ MP3`
+-   If you stop an active queue, interrupted tracks are returned to `Ready` so you can restart the download cleanly
 -   If needed, you can relaunch the app with `--timeout <seconds>` to limit how long a single file download may take
 -   By default, each MP3 or FLAC is tagged with title, artist, album metadata, Yandex track ID, and embedded cover art when available
 -   If cover downloads are slow or expensive, relaunch with `--skip-cover=true`; text ID3 tags will still be written
@@ -119,7 +122,8 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 
 -   If downloads fail, you can retry by focusing `Download all` after the process completes
 -   For persistent errors, try using your personal [authentication token](#authentication-token)
--   In FLAC mode, a completed `✅ MP3` status means the app successfully used the MP3 fallback for that track
+-   In lossless mode, a completed `✅ MP3` status means the app successfully used the MP3 fallback for that track
+-   A completed `✅ M4A` status means Yandex Music returned the lossless track in an M4A container
 -   You are welcome to open an issue or send a PR
 
 ## Acknowledgments

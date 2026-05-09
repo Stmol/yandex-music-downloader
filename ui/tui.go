@@ -137,7 +137,7 @@ func StartUi(client *ya.Client, options ...ya.DownloadOptions) Model {
 
 func (m Model) handleShutdown(reason string) (tea.Model, tea.Cmd) {
 	if m.downloadModel.isDownloading {
-		m.downloadModel.requestShutdown(reason)
+		m.downloadModel.requestShutdown(reason, true)
 		return m, nil
 	}
 

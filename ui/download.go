@@ -160,6 +160,7 @@ type DownloadModel struct {
 	// UI state.
 	isDownloading     bool
 	shutdownRequested bool
+	quitAfterCancel   bool
 	focusedView       focusable
 	lastActionFocus   focusable
 	selectedTrackInfo string
@@ -233,6 +234,7 @@ func (m *DownloadModel) Reset() {
 	m.errorCount = 0
 	m.isDownloading = false
 	m.shutdownRequested = false
+	m.quitAfterCancel = false
 	m.focusedView = viewList
 	m.lastActionFocus = viewFormatMP3
 	m.selectedTrackInfo = ""
@@ -333,6 +335,14 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 	case DownloadEndMsg:
 		m.isDownloading = false
 		if m.shutdownRequested {
+			m.normalizeCanceledTracks()
+			m.shutdownRequested = false
+			if m.client != nil {
+				m.client.ResetCancel()
+			}
+		}
+		if m.quitAfterCancel {
+			m.quitAfterCancel = false
 			return m, tea.Quit
 		}
 
@@ -618,7 +628,7 @@ func (m DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 
 	case viewQuitButton:
 		if m.isDownloading {
-			m.requestShutdown("quit_button")
+			m.requestShutdown("quit_button", false)
 			return m, nil
 		}
 
@@ -824,17 +834,20 @@ func downloadFormatFromFilename(filename string) string {
 	switch strings.ToLower(filepath.Ext(filename)) {
 	case ".flac":
 		return "FLAC"
+	case ".m4a", ".mp4":
+		return "M4A"
 	default:
 		return "MP3"
 	}
 }
 
-func (m *DownloadModel) requestShutdown(reason string) {
+func (m *DownloadModel) requestShutdown(reason string, quitAfterCancel bool) {
 	if m.shutdownRequested {
 		return
 	}
 
 	m.shutdownRequested = true
+	m.quitAfterCancel = quitAfterCancel
 	downloadLogger(m.client).Info("application quit requested",
 		"reason", reason,
 		"is_downloading", m.isDownloading,
@@ -843,4 +856,36 @@ func (m *DownloadModel) requestShutdown(reason string) {
 	if m.client != nil {
 		m.client.Cancel()
 	}
+}
+
+func (m *DownloadModel) normalizeCanceledTracks() {
+	for _, tp := range m.tracksProgress {
+		if tp.status == TrackStatusDownloaded || tp.status == TrackStatusAlreadyExists {
+			continue
+		}
+
+		if tp.status == TrackStatusDownloading || isCanceledError(tp.errMsg) {
+			tp.status = TrackStatusReady
+			tp.errMsg = ""
+			tp.filename = ""
+			tp.format = ""
+		}
+	}
+
+	m.downloadedCount = countStatus(m.tracksProgress, TrackStatusDownloaded)
+	m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
+	m.downloadableCount = countStatus(m.tracksProgress, TrackStatusReady)
+	m.tracksTotalCount = len(m.tracksProgress)
+	m.updateTrackList()
+}
+
+func isCanceledError(errMsg string) bool {
+	errMsg = strings.ToLower(strings.TrimSpace(errMsg))
+	if errMsg == "" {
+		return false
+	}
+
+	return strings.Contains(errMsg, "context canceled") ||
+		strings.Contains(errMsg, "operation was canceled") ||
+		strings.Contains(errMsg, "request canceled")
 }

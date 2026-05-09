@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"ya-music/ya/model"
@@ -26,6 +27,7 @@ type HttpClient struct {
 	httpClient      *http.Client
 	headers         map[string]string
 	logger          *DownloadLogger
+	mu              sync.RWMutex
 	ctx             context.Context
 	cancel          context.CancelFunc
 	requestTimeout  time.Duration
@@ -64,11 +66,31 @@ func (c *HttpClient) Logger() *DownloadLogger {
 }
 
 func (c *HttpClient) Cancel() {
-	if c == nil || c.cancel == nil {
+	if c == nil {
 		return
 	}
 
-	c.cancel()
+	c.mu.RLock()
+	cancel := c.cancel
+	c.mu.RUnlock()
+	if cancel == nil {
+		return
+	}
+
+	cancel()
+}
+
+func (c *HttpClient) ResetCancel() {
+	if c == nil {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	c.mu.Lock()
+	c.ctx = ctx
+	c.cancel = cancel
+	c.mu.Unlock()
 }
 
 func (c *HttpClient) SetToken(token string) {
@@ -91,6 +113,10 @@ func (c *HttpClient) GetWithContext(reqCtx RequestLogContext, url string) ([]byt
 	return c.sendRequest(reqCtx, http.MethodGet, url, nil)
 }
 
+func (c *HttpClient) GetWithContextAndHeaders(reqCtx RequestLogContext, url string, headers map[string]string) ([]byte, error) {
+	return c.sendRequestWithHeaders(reqCtx, http.MethodGet, url, nil, headers)
+}
+
 func (c *HttpClient) Post(url string, data []byte) ([]byte, error) {
 	return c.PostWithContext(RequestLogContext{}, url, data)
 }
@@ -100,10 +126,14 @@ func (c *HttpClient) PostWithContext(reqCtx RequestLogContext, url string, data 
 }
 
 func (c *HttpClient) sendRequest(reqCtx RequestLogContext, method, url string, data []byte) ([]byte, error) {
+	return c.sendRequestWithHeaders(reqCtx, method, url, data, nil)
+}
+
+func (c *HttpClient) sendRequestWithHeaders(reqCtx RequestLogContext, method, url string, data []byte, extraHeaders map[string]string) ([]byte, error) {
 	ctx, cancel := withOptionalTimeout(c.baseContext(), c.requestTimeout)
 	defer cancel()
 
-	req, err := c.createRequest(ctx, method, url, data)
+	req, err := c.createRequest(ctx, method, url, data, extraHeaders)
 	if err != nil {
 		c.logRequest(slog.LevelError, reqCtx, "http request create failed", method, url,
 			"error", err,
@@ -161,13 +191,16 @@ func (c *HttpClient) sendRequest(reqCtx RequestLogContext, method, url string, d
 	return body, nil
 }
 
-func (c *HttpClient) createRequest(ctx context.Context, method, url string, data []byte) (*http.Request, error) {
+func (c *HttpClient) createRequest(ctx context.Context, method, url string, data []byte, extraHeaders map[string]string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err
 	}
 
 	for key, value := range c.headers {
+		req.Header.Set(key, value)
+	}
+	for key, value := range extraHeaders {
 		req.Header.Set(key, value)
 	}
 
@@ -346,7 +379,13 @@ func (c *HttpClient) saveResponseToFile(body io.Reader, filepath string) (int64,
 }
 
 func (c *HttpClient) baseContext() context.Context {
-	if c == nil || c.ctx == nil {
+	if c == nil {
+		return context.Background()
+	}
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.ctx == nil {
 		return context.Background()
 	}
 

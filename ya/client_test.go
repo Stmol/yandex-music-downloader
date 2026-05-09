@@ -14,17 +14,31 @@ import (
 )
 
 type fakeLosslessDownloader struct {
-	result lossless.DownloadResult
-	err    error
-	calls  int
+	info          lossless.DownloadInfo
+	data          []byte
+	infoErr       error
+	downloadErr   error
+	infoCalls     int
+	downloadCalls int
+	userID        int
 }
 
-func (f *fakeLosslessDownloader) Download(_ utils.RequestLogContext, _ string) (lossless.DownloadResult, error) {
-	f.calls++
-	if f.err != nil {
-		return lossless.DownloadResult{}, f.err
+func (f *fakeLosslessDownloader) GetDownloadInfo(_ utils.RequestLogContext, _ string, userUID int) (lossless.DownloadInfo, error) {
+	f.infoCalls++
+	f.userID = userUID
+	if f.infoErr != nil {
+		return lossless.DownloadInfo{}, f.infoErr
 	}
-	return f.result, nil
+	return f.info, nil
+}
+
+func (f *fakeLosslessDownloader) DownloadAudio(_ utils.RequestLogContext, info lossless.DownloadInfo) ([]byte, error) {
+	f.downloadCalls++
+	f.info = info
+	if f.downloadErr != nil {
+		return nil, f.downloadErr
+	}
+	return f.data, nil
 }
 
 func TestDownloadTrackReturnsAlreadyExistsSentinel(t *testing.T) {
@@ -54,13 +68,17 @@ func TestDownloadTrackReturnsAlreadyExistsSentinelForFLACFormat(t *testing.T) {
 	require.NoError(t, os.WriteFile(filename, []byte("existing"), 0644))
 
 	client := NewClient(nil)
-	fakeLossless := &fakeLosslessDownloader{}
+	client.userUID = 1
+	fakeLossless := &fakeLosslessDownloader{
+		info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac", Bitrate: 1411},
+	}
 	client.losslessDownloader = fakeLossless
 	gotFilename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
 
 	assert.Equal(t, filename, gotFilename)
 	assert.ErrorIs(t, err, ErrTrackAlreadyExists)
-	assert.Zero(t, fakeLossless.calls)
+	assert.Equal(t, 1, fakeLossless.infoCalls)
+	assert.Zero(t, fakeLossless.downloadCalls)
 }
 
 func TestDownloadTrackWithOptionsUsesMP3ByDefault(t *testing.T) {
@@ -81,7 +99,8 @@ func TestDownloadTrackWithOptionsUsesMP3ByDefault(t *testing.T) {
 
 func TestDownloadTrackWithOptionsFallsBackToMP3WhenFLACFails(t *testing.T) {
 	client := NewClient(nil)
-	client.losslessDownloader = &fakeLosslessDownloader{err: errors.New("no flac")}
+	client.losslessDownloader = &fakeLosslessDownloader{infoErr: errors.New("no flac")}
+	client.userUID = 1
 	client.mp3Downloader = func(_ model.Track, _ string, options DownloadOptions) (string, error) {
 		assert.Equal(t, AudioFormatFLAC, options.FormatOrDefault())
 		return "fallback.mp3", nil
@@ -111,11 +130,10 @@ func TestDownloadTrackWithOptionsWritesFLACWhenLosslessSucceeds(t *testing.T) {
 		}},
 	}
 	client := NewClient(nil)
+	client.userUID = 99
 	client.losslessDownloader = &fakeLosslessDownloader{
-		result: lossless.DownloadResult{
-			Info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac", Bitrate: 1411},
-			Data: minimalFLACBytes(),
-		},
+		info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac", Bitrate: 1411},
+		data: minimalFLACBytes(),
 	}
 	client.mp3Downloader = func(_ model.Track, _ string, _ DownloadOptions) (string, error) {
 		t.Fatal("mp3 fallback should not be called")
@@ -132,6 +150,60 @@ func TestDownloadTrackWithOptionsWritesFLACWhenLosslessSucceeds(t *testing.T) {
 	assert.Contains(t, string(data), "ARTIST=Artist")
 	assert.Contains(t, string(data), "ALBUM=Album")
 	assert.Contains(t, string(data), "YANDEX_TRACK_ID=10")
+}
+
+func TestDownloadTrackWithOptionsWritesFLACMP4AsM4A(t *testing.T) {
+	outputDir := t.TempDir()
+	track := model.Track{
+		ID:        model.FlexibleID("11"),
+		Title:     "Song",
+		Available: true,
+		Artists:   []model.Artist{{Name: "Artist"}},
+	}
+	client := NewClient(nil)
+	client.userUID = 77
+	client.losslessDownloader = &fakeLosslessDownloader{
+		info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac-mp4", Bitrate: 0},
+		data: []byte("mp4 container"),
+	}
+	client.mp3Downloader = func(_ model.Track, _ string, _ DownloadOptions) (string, error) {
+		t.Fatal("mp3 fallback should not be called")
+		return "", nil
+	}
+
+	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
+
+	require.NoError(t, err)
+	assert.Equal(t, buildTrackFilenameWithExtension(track, outputDir, ".m4a"), filename)
+	data, err := os.ReadFile(filename)
+	require.NoError(t, err)
+	assert.Equal(t, "mp4 container", string(data))
+}
+
+func TestDownloadTrackWithOptionsDoesNotDownloadLosslessWhenTargetExists(t *testing.T) {
+	outputDir := t.TempDir()
+	track := model.Track{
+		ID:        model.FlexibleID("12"),
+		Title:     "Existing M4A",
+		Available: true,
+	}
+	filename := buildTrackFilenameWithExtension(track, outputDir, ".m4a")
+	require.NoError(t, os.WriteFile(filename, []byte("existing"), 0644))
+
+	client := NewClient(nil)
+	client.userUID = 15
+	fakeLossless := &fakeLosslessDownloader{
+		info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac-mp4", Bitrate: 0},
+		data: []byte("should not be downloaded"),
+	}
+	client.losslessDownloader = fakeLossless
+
+	gotFilename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
+
+	assert.Equal(t, filename, gotFilename)
+	assert.ErrorIs(t, err, ErrTrackAlreadyExists)
+	assert.Equal(t, 1, fakeLossless.infoCalls)
+	assert.Zero(t, fakeLossless.downloadCalls)
 }
 
 func TestBuildTrackFilenameUsesCanonicalArtistTrackPattern(t *testing.T) {

@@ -73,6 +73,20 @@ func TestGetUsesConfiguredRequestTimeout(t *testing.T) {
 	assert.ErrorContains(t, err, "context deadline exceeded")
 }
 
+func TestGetRecognizesResultWrappedAPIErrorPayload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"result":{"name":"track-download-info-error","message":"not-allowed"}}`))
+	}))
+	defer server.Close()
+
+	client := NewHttpClient()
+	_, err := client.Get(server.URL)
+
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "not-allowed")
+}
+
 func TestGetWithContextLogsRequestAndRedactsAuthorization(t *testing.T) {
 	var logs bytes.Buffer
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

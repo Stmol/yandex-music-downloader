@@ -20,6 +20,7 @@ func TestShutdownRequestedMsgCancelsDownloadsBeforeQuit(t *testing.T) {
 	updated := updatedModel.(Model)
 
 	assert.True(t, updated.downloadModel.shutdownRequested)
+	assert.True(t, updated.downloadModel.quitAfterCancel)
 	assert.Nil(t, cmd)
 }
 

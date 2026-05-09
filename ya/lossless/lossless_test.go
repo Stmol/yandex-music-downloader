@@ -16,12 +16,18 @@ import (
 
 type fakeHTTPClient struct {
 	getBody      []byte
+	gotHeaders   map[string]string
 	downloadData map[string][]byte
 	downloadErrs map[string]error
 	downloaded   []string
 }
 
 func (f *fakeHTTPClient) GetWithContext(_ utils.RequestLogContext, _ string) ([]byte, error) {
+	return f.getBody, nil
+}
+
+func (f *fakeHTTPClient) GetWithContextAndHeaders(_ utils.RequestLogContext, _ string, headers map[string]string) ([]byte, error) {
+	f.gotHeaders = headers
 	return f.getBody, nil
 }
 
@@ -45,21 +51,24 @@ func TestBuildFileInfoURLSignsLosslessRequest(t *testing.T) {
 	assert.Equal(t, "1700000000", query.Get("ts"))
 	assert.Equal(t, "12345", query.Get("trackId"))
 	assert.Equal(t, "lossless", query.Get("quality"))
-	assert.Equal(t, "flac,flac-mp4,mp3,aac,he-aac,aac-mp4,he-aac-mp4", query.Get("codecs"))
-	assert.Equal(t, "encraw", query.Get("transports"))
-	assert.Equal(t, "A8rhGDs/OL1IOCIm7vYn4rj4ieadMfXvKJn2YoqVtoc", query.Get("sign"))
+	assert.Equal(t, "flac,aac,he-aac,mp3,flac-mp4,aac-mp4,he-aac-mp4", query.Get("codecs"))
+	assert.Equal(t, "raw", query.Get("transports"))
+	assert.Equal(t, "Nm6It392fRGnljyGblG06Vq9OfnOmvKJj/esqr06yFg", query.Get("sign"))
 }
 
-func TestGetDownloadInfoAcceptsOnlyFLACContainer(t *testing.T) {
+func TestGetDownloadInfoAcceptsFLACMP4Container(t *testing.T) {
 	client := &fakeHTTPClient{
 		getBody: []byte(`{"download_info":{"quality":"lossless","codec":"flac-mp4","urls":["https://cdn.test/a"],"bitrate":999}}`),
 	}
 	downloader := NewDownloader(client)
 	downloader.now = func() time.Time { return time.Unix(1700000000, 0) }
 
-	_, err := downloader.GetDownloadInfo(utils.RequestLogContext{}, "1")
+	info, err := downloader.GetDownloadInfo(utils.RequestLogContext{}, "1", 42)
 
-	assert.ErrorIs(t, err, ErrNoFLACDownloadInfo)
+	require.NoError(t, err)
+	assert.Equal(t, "flac-mp4", info.Codec)
+	assert.Equal(t, "42", client.gotHeaders["x-yandex-music-multi-auth-user-id"])
+	assert.Equal(t, "YandexMusicWebNext/1.0.0", client.gotHeaders["x-yandex-music-client"])
 }
 
 func TestDownloadAudioDecryptsAESCTRPayload(t *testing.T) {
