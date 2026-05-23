@@ -53,6 +53,7 @@ type YaClient interface {
 	AlbumWithTracks(id string) (*model.Album, error)
 	UsersPlaylist(id string, username string) (*model.Playlist, error)
 	PlaylistByUUID(id string) (*model.Playlist, error)
+	Chart(region string) (*model.Playlist, error)
 	DownloadTrack(track model.Track, outputDir string) (string, error)
 	DownloadTrackWithOptions(track model.Track, outputDir string, options DownloadOptions) (string, error)
 	SetToken(token string)
@@ -175,6 +176,25 @@ func (c *Client) UsersPlaylist(id string, username string) (*model.Playlist, err
 
 func (c *Client) PlaylistByUUID(id string) (*model.Playlist, error) {
 	return c.fetchPlaylist(fmt.Sprintf("%s/playlist/%s", baseURL, id))
+}
+
+func (c *Client) Chart(region string) (*model.Playlist, error) {
+	url := fmt.Sprintf("%s/landing3/chart", baseURL)
+	if region != "" {
+		url = fmt.Sprintf("%s/%s", url, region)
+	}
+
+	res, err := c.httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get chart: %w", err)
+	}
+
+	var data model.ChartResponse
+	if err := parseResponse(res, &data); err != nil {
+		return nil, err
+	}
+
+	return &data.Result.Chart, nil
 }
 
 func (c *Client) fetchPlaylist(url string) (*model.Playlist, error) {

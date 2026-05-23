@@ -19,6 +19,7 @@ var (
 	albumPattern           = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/album/(?P<albumId>\d+)(?:\?.*)?$`)
 	playlistPattern        = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/users/(?P<username>[^/]+)/playlists/(?P<playlistId>\d+)(?:\?.*)?$`)
 	playlistUUIDPattern    = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/playlists/(?P<playlistUuid>(?:[a-z]{2}\.)?[0-9a-fA-F-]{36})(?:\?.*)?$`)
+	chartPattern           = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/chart(?:/(?P<region>[a-z]+))?(?:\?.*)?$`)
 )
 
 type sourceURLKind int
@@ -28,6 +29,7 @@ const (
 	sourceURLAlbum
 	sourceURLLegacyPlaylist
 	sourceURLPlaylistUUID
+	sourceURLChart
 )
 
 type (
@@ -38,6 +40,7 @@ type (
 		PlaylistID   string
 		PlaylistUUID string
 		Username     string
+		Region       string
 	}
 
 	SourceSubmitMsg struct {
@@ -175,6 +178,12 @@ func (m *SourceModel) parseURL(input string) tea.Msg {
 			PlaylistUUID: playlistID,
 		}
 	}
+	if matches := chartPattern.FindStringSubmatch(input); matches != nil {
+		return URLSubmitMsg{
+			kind:   sourceURLChart,
+			Region: matches[1],
+		}
+	}
 	return nil
 }
 
@@ -195,6 +204,12 @@ func (m *SourceModel) handleURL(msg URLSubmitMsg) tea.Cmd {
 			return SourceSubmitMsg{Album: album}
 		case sourceURLLegacyPlaylist, sourceURLPlaylistUUID:
 			playlist, err := m.fetchPlaylist(msg)
+			if err != nil {
+				return URLHandleErrorMsg(err.Error())
+			}
+			return SourceSubmitMsg{Playlist: playlist}
+		case sourceURLChart:
+			playlist, err := m.client.Chart(msg.Region)
 			if err != nil {
 				return URLHandleErrorMsg(err.Error())
 			}
@@ -223,6 +238,7 @@ func (m SourceModel) View() string {
 	s += dimGrayForeground.Render("\n- Album: https://music.yandex.ru/album/1231231")
 	s += dimGrayForeground.Render("\n- Playlist: https://music.yandex.ru/playlists/4dc94b2f-e96b-2daf-a53c-ce71846901b3")
 	s += dimGrayForeground.Render("\n- Legacy playlist: https://music.yandex.ru/users/username/playlists/12312311")
+	s += dimGrayForeground.Render("\n- Chart: https://music.yandex.ru/chart (or /chart/world)")
 	s += "\n\n"
 	s += m.urlInput.View()
 

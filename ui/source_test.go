@@ -88,6 +88,27 @@ func TestSourceParseURLPlaylistUUIDWithGenericPrefix(t *testing.T) {
 	}, msg)
 }
 
+func TestSourceParseURLChart(t *testing.T) {
+	m := SourceModel{}
+
+	msg := m.parseURL("https://music.yandex.ru/chart?utm_source=web")
+
+	assert.Equal(t, URLSubmitMsg{
+		kind: sourceURLChart,
+	}, msg)
+}
+
+func TestSourceParseURLChartWithRegion(t *testing.T) {
+	m := SourceModel{}
+
+	msg := m.parseURL("https://music.yandex.com/chart/world")
+
+	assert.Equal(t, URLSubmitMsg{
+		kind:   sourceURLChart,
+		Region: "world",
+	}, msg)
+}
+
 func TestSourceParseURLInvalid(t *testing.T) {
 	m := SourceModel{}
 
