@@ -8,6 +8,12 @@ type PlaylistsResponse struct {
 	Result []Playlist `json:"result"`
 }
 
+type ChartResponse struct {
+	Result struct {
+		Chart *Playlist `json:"chart"`
+	} `json:"result"`
+}
+
 type AlbumResponse struct {
 	Result Album `json:"result"`
 }
