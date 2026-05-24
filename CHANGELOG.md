@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.9 - 2026-05-24
+- added support for Yandex Music chart URLs, including the default regional chart at `/chart` and region-specific charts such as `/chart/world`
+
 ## v1.8 - 2026-05-09
 - improved compatibility with newer Yandex Music lossless responses so lossless downloads work again with the current API and can be saved in the returned container format
 - improved download cancellation in the TUI: stopping an active queue now resets interrupted tracks back to a ready state instead of leaving them as failed downloads

@@ -16,6 +16,7 @@ A GUI application for downloading tracks from the Yandex Music streaming service
 -   Modern graphical user interface
 -   _Blazingly fast, powered by the Go programming language_
 -   Download individual tracks, albums, and playlists in MP3 format by default
+-   Download Yandex Music chart playlists, including region-specific charts
 -   Optional lossless downloads with automatic fallback to the best available MP3
 -   Add metadata tags and embedded cover art to downloaded MP3 and FLAC files
 -   Duplicate detection in playlists
@@ -60,6 +61,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 ### 3. Copy Track Link
 
 -   Navigate to the Yandex Music web interface and select `Share` -> `Copy link` for any track, album, or playlist
+-   Chart pages such as `https://music.yandex.ru/chart` and `https://music.yandex.ru/chart/world` can also be pasted directly
 -   This will copy the URL to your clipboard
 
 <div align="center">
@@ -79,6 +81,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 -   Press `<Tab>` to move between the track list and controls, `<Left>`/`<Right>` to move inside controls, and `<Enter>`/`<Space>` to activate the focused control
 -   Format selection applies to the whole current queue; individual tracks still fall back to MP3 when lossless is unavailable
 -   Depending on the source returned by Yandex Music, a lossless track may be saved as either `FLAC` or `M4A`
+-   Supported source URLs include tracks, albums, playlists, and Yandex Music charts
 -   If FLAC is unavailable or cannot be downloaded, the app automatically falls back to the best available MP3
 -   Downloads are saved to `./downloads` in the application's working directory
 -   Track status indicators:
