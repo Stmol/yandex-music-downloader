@@ -194,7 +194,11 @@ func (c *Client) Chart(region string) (*model.Playlist, error) {
 		return nil, err
 	}
 
-	return &data.Result.Chart, nil
+	if data.Result.Chart == nil || len(data.Result.Chart.Tracks) == 0 {
+		return nil, fmt.Errorf("chart not found")
+	}
+
+	return data.Result.Chart, nil
 }
 
 func (c *Client) fetchPlaylist(url string) (*model.Playlist, error) {

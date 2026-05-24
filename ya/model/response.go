@@ -10,7 +10,7 @@ type PlaylistsResponse struct {
 
 type ChartResponse struct {
 	Result struct {
-		Chart Playlist `json:"chart"`
+		Chart *Playlist `json:"chart"`
 	} `json:"result"`
 }
 
