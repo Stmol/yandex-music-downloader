@@ -154,6 +154,34 @@ func TestArrowKeysMoveAcrossActionControls(t *testing.T) {
 	assert.Equal(t, viewFormatFLAC, updated.focusedView)
 }
 
+func TestArrowKeysMoveBetweenActionRows(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.focusedView = viewFormatMP3
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	assert.Equal(t, viewBackButton, updated.focusedView)
+
+	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyUp})
+	assert.Equal(t, viewFormatMP3, updated.focusedView)
+
+	updated.focusedView = viewFormatFLAC
+	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	assert.Equal(t, viewDownloadButton, updated.focusedView)
+
+	updated.focusedView = viewQuitButton
+	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyUp})
+	assert.Equal(t, viewFormatFLAC, updated.focusedView)
+}
+
+func TestArrowDownFallsBackToQuitWhenOnlyQuitEnabled(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.isDownloading = true
+	m.focusedView = viewFormatMP3
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	assert.Equal(t, viewQuitButton, updated.focusedView)
+}
+
 func TestActionBarActivationUsesEnterAndSpace(t *testing.T) {
 	m := NewDownloadModel(nil)
 	m.focusedView = viewFormatFLAC

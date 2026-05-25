@@ -78,10 +78,18 @@ var downloadKeys = downloadKeyMap{
 	),
 	Left: key.NewBinding(
 		key.WithKeys("left", "h"),
-		key.WithHelp("left/right", "move controls"),
+		key.WithHelp("left/right", "move horizontally"),
 	),
 	Right: key.NewBinding(
 		key.WithKeys("right", "l"),
+		key.WithHelp("", ""),
+	),
+	Up: key.NewBinding(
+		key.WithKeys("up", "k"),
+		key.WithHelp("up/down", "move vertically"),
+	),
+	Down: key.NewBinding(
+		key.WithKeys("down", "j"),
 		key.WithHelp("", ""),
 	),
 	Activate: key.NewBinding(
@@ -89,8 +97,8 @@ var downloadKeys = downloadKeyMap{
 		key.WithHelp("enter/space", "activate"),
 	),
 	FocusList: key.NewBinding(
-		key.WithKeys("esc", "up"),
-		key.WithHelp("esc/up", "tracks"),
+		key.WithKeys("esc"),
+		key.WithHelp("esc", "tracks"),
 	),
 	Duplicates: key.NewBinding(
 		key.WithKeys("t", "T"),
@@ -103,20 +111,23 @@ type downloadKeyMap struct {
 	Prev       key.Binding
 	Left       key.Binding
 	Right      key.Binding
+	Up         key.Binding
+	Down       key.Binding
 	Activate   key.Binding
 	FocusList  key.Binding
 	Duplicates key.Binding
 }
 
 func (k downloadKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Next, k.Left, k.Activate, k.FocusList, k.Duplicates}
+	return []key.Binding{k.Next, k.Left, k.Up, k.Activate, k.FocusList, k.Duplicates}
 }
 
 func (k downloadKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Next, k.Prev},
-		{k.Left, k.Activate},
-		{k.FocusList, k.Duplicates},
+		{k.Left, k.Up},
+		{k.Activate, k.FocusList},
+		{k.Duplicates},
 	}
 }
 
@@ -306,6 +317,16 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 		case key.Matches(msg, downloadKeys.Left):
 			if m.focusedView != viewList {
 				m.focusPreviousAction()
+			}
+
+		case key.Matches(msg, downloadKeys.Down):
+			if m.focusedView != viewList {
+				m.focusDownAction()
+			}
+
+		case key.Matches(msg, downloadKeys.Up):
+			if m.focusedView != viewList {
+				m.focusUpAction()
 			}
 
 		case key.Matches(msg, downloadKeys.FocusList):
@@ -687,6 +708,46 @@ func (m *DownloadModel) focusPreviousAction() {
 			m.lastActionFocus = previous
 			return
 		}
+	}
+}
+
+func (m *DownloadModel) focusDownAction() {
+	m.focusVerticalAction(verticalTargetsBelow(m.focusedView))
+}
+
+func (m *DownloadModel) focusUpAction() {
+	m.focusVerticalAction(verticalTargetsAbove(m.focusedView))
+}
+
+func (m *DownloadModel) focusVerticalAction(targets []focusable) {
+	for _, target := range targets {
+		if m.controlEnabled(target) {
+			m.focusedView = target
+			m.lastActionFocus = target
+			return
+		}
+	}
+}
+
+func verticalTargetsBelow(control focusable) []focusable {
+	switch control {
+	case viewFormatMP3:
+		return []focusable{viewBackButton, viewDownloadButton, viewQuitButton}
+	case viewFormatFLAC:
+		return []focusable{viewDownloadButton, viewQuitButton, viewBackButton}
+	default:
+		return nil
+	}
+}
+
+func verticalTargetsAbove(control focusable) []focusable {
+	switch control {
+	case viewBackButton:
+		return []focusable{viewFormatMP3, viewFormatFLAC}
+	case viewDownloadButton, viewQuitButton:
+		return []focusable{viewFormatFLAC, viewFormatMP3}
+	default:
+		return nil
 	}
 }
 
