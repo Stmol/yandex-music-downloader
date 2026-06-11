@@ -7,8 +7,8 @@ import (
 	"ya-music/ya"
 	"ya-music/ya/model"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type UiState int
@@ -55,8 +55,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	utils.NewLogger("").Debug(fmt.Sprintf("Update: %T - %v", msg, msg))
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC {
+	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" {
 			return m.handleShutdown("ctrl_c")
 		}
 
@@ -113,17 +113,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
+	var content string
+
 	switch m.initState {
 	case UiStateDownloading:
-		return "\n\n" + m.downloadModel.View()
+		content = "\n\n" + m.downloadModel.render()
 	case UiStateSelectSource:
-		return "\n\n" + marginLeftStyle.Render(m.sourceModel.View())
+		content = "\n\n" + marginLeftStyle.Render(m.sourceModel.render())
 	case UiStateTokenInput:
-		return "\n\n" + marginLeftStyle.Render(m.tokenModel.View())
+		content = "\n\n" + marginLeftStyle.Render(m.tokenModel.render())
 	}
 
-	return ""
+	view := tea.NewView(content)
+	view.AltScreen = true
+	return view
 }
 
 func StartUi(client *ya.Client, options ...ya.DownloadOptions) Model {

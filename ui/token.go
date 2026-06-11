@@ -5,9 +5,9 @@ import (
 	"ya-music/utils"
 	"ya-music/ya"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 )
 
 type TokenModel struct {
@@ -35,7 +35,7 @@ type (
 func NewTokenModel(client *ya.Client) TokenModel {
 	input := textinput.New()
 	input.Placeholder = "Enter your token..."
-	input.Width = 50
+	input.SetWidth(50)
 	input.Focus()
 
 	sp := spinner.New()
@@ -67,7 +67,7 @@ func (m TokenModel) Update(msg tea.Msg) (TokenModel, tea.Cmd) {
 	m.inputField, fieldCmd = m.inputField.Update(msg)
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		m, cmd = m.handleKeyMsg(msg)
 	case TokenIncorrectMsg:
 		m, cmd = m.handleTokenIncorrectMsg(msg)
@@ -85,7 +85,11 @@ func (m TokenModel) Update(msg tea.Msg) (TokenModel, tea.Cmd) {
 	)
 }
 
-func (m TokenModel) View() string {
+func (m TokenModel) View() tea.View {
+	return tea.NewView(m.render())
+}
+
+func (m TokenModel) render() string {
 	switch {
 	case m.isCheckingToken:
 		return fmt.Sprintf("%s Checking token...", m.loadingSpinner.View())
@@ -129,7 +133,7 @@ func (m TokenModel) readTokenFromFile() tea.Cmd {
 	}
 }
 
-func (m TokenModel) handleKeyMsg(msg tea.KeyMsg) (TokenModel, tea.Cmd) {
+func (m TokenModel) handleKeyMsg(msg tea.KeyPressMsg) (TokenModel, tea.Cmd) {
 	if m.confirmSave {
 		switch msg.String() {
 		case "y", "Y":
@@ -138,7 +142,7 @@ func (m TokenModel) handleKeyMsg(msg tea.KeyMsg) (TokenModel, tea.Cmd) {
 			m.confirmSave = false
 			return m, func() tea.Msg { return TokenOkMsg{} }
 		}
-	} else if msg.Type == tea.KeyEnter && !m.isCheckingToken {
+	} else if msg.String() == "enter" && !m.isCheckingToken {
 		m.isCheckingToken = true
 		m.tokenFromFile = false
 		m.inputField.Blur()

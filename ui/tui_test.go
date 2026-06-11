@@ -6,7 +6,7 @@ import (
 	"ya-music/ya"
 	"ya-music/ya/model"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 )
 

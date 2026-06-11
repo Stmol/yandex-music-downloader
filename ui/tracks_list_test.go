@@ -6,7 +6,7 @@ import (
 	"testing"
 	"ya-music/ya/model"
 
-	"github.com/charmbracelet/bubbles/list"
+	"charm.land/bubbles/v2/list"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 )

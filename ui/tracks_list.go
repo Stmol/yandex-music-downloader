@@ -8,9 +8,9 @@ import (
 	"unicode/utf8"
 	"ya-music/ya/model"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 var (
@@ -102,7 +102,7 @@ func (t TrackListItem) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 	currItem := m.SelectedItem().(TrackListItem)
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "up", "k", "down", "j", "left", "right", "l", "h", "g", "G", "end", "home", "pgup", "pgdn":
 			return func() tea.Msg {

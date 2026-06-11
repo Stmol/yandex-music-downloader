@@ -13,13 +13,13 @@ import (
 	"ya-music/ya"
 	"ya-music/ya/model"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/progress"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/google/uuid"
 )
 
@@ -93,7 +93,7 @@ var downloadKeys = downloadKeyMap{
 		key.WithHelp("", ""),
 	),
 	Activate: key.NewBinding(
-		key.WithKeys("enter", " "),
+		key.WithKeys("enter", "space"),
 		key.WithHelp("enter/space", "activate"),
 	),
 	FocusList: key.NewBinding(
@@ -186,7 +186,7 @@ func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) Download
 	sp.Style = spinnerStyle
 
 	p := progress.New(
-		progress.WithDefaultGradient(),
+		progress.WithDefaultBlend(),
 		progress.WithWidth(75),
 		progress.WithoutPercentage(),
 	)
@@ -207,7 +207,7 @@ func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) Download
 	}
 
 	h := help.New()
-	h.Width = defaultDownloadWidth
+	h.SetWidth(defaultDownloadWidth)
 
 	return DownloadModel{
 		client:            client,
@@ -298,7 +298,7 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 		m.windowHeight = msg.Height
 		m.resizeToWindow()
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, downloadKeys.Activate):
 			m, cmd = m.activateFocusedControl()
@@ -377,7 +377,11 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m DownloadModel) View() string {
+func (m DownloadModel) View() tea.View {
+	return tea.NewView(m.render())
+}
+
+func (m DownloadModel) render() string {
 	header := renderHeader(m.downloadedCount, m.tracksTotalCount, m.downloadableCount, m.errorCount)
 	viewStr := marginLeftStyle.Render(header)
 	viewStr += "\n" + marginLeftStyle.Render(m.selectedTrackInfo) + "\n"
@@ -404,8 +408,8 @@ func (m *DownloadModel) resizeToWindow() {
 		contentWidth = 40
 	}
 
-	m.progress.Width = contentWidth
-	m.help.Width = contentWidth
+	m.progress.SetWidth(contentWidth)
+	m.help.SetWidth(contentWidth)
 	m.trackList.SetWidth(contentWidth)
 	m.trackList.SetHeight(m.availableTrackListHeight())
 }
