@@ -27,6 +27,11 @@ func main() {
 		os.Exit(2)
 	}
 
+	if isKnownProblematicTerm(os.Getenv("TERM")) {
+		fmt.Fprintln(os.Stderr, problematicTermWarning(os.Getenv("TERM")))
+		os.Exit(2)
+	}
+
 	downloadLogger, err := utils.NewDownloadLogger(utils.DefaultDownloadLogPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to initialize download logger: %v\n", err)
@@ -74,4 +79,18 @@ func main() {
 	}
 
 	downloadLogger.Info("application stopped")
+}
+
+func isKnownProblematicTerm(term string) bool {
+	return term == "xterm"
+}
+
+func problematicTermWarning(term string) string {
+	return fmt.Sprintf(`Warning: TERM=%s is known to break this terminal UI.
+
+Colors, selected row highlighting, and focus/navigation may not render correctly.
+Run this before starting yamdl again:
+
+  export TERM=xterm-256color
+`, term)
 }
