@@ -17,6 +17,10 @@ const (
 	UiStateTokenInput UiState = iota
 	UiStateSelectSource
 	UiStateDownloading
+
+	minInputWidth         = 20
+	inputHorizontalChrome = 4
+	rootTopPadding        = 2
 )
 
 var (
@@ -43,6 +47,8 @@ type Model struct {
 	tokenModel    TokenModel
 	sourceModel   SourceModel
 	downloadModel DownloadModel
+	windowWidth   int
+	windowHeight  int
 }
 
 func (m Model) Init() tea.Cmd {
@@ -55,6 +61,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	utils.NewLogger("").Debug(fmt.Sprintf("Update: %T - %v", msg, msg))
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.windowWidth = msg.Width
+		m.windowHeight = msg.Height
+		m.resizeToWindow()
+
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
 			return m.handleShutdown("ctrl_c")
@@ -64,10 +75,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.initState = UiStateSelectSource
 		m.downloadModel.Reset()
 		m.sourceModel.Reset()
+		m.resizeToWindow()
 		return m, m.sourceModel.Init()
 
 	case TokenOkMsg:
 		m.initState = UiStateSelectSource
+		m.resizeToWindow()
 		cmds = append(cmds, m.sourceModel.Init())
 
 	case SourceSubmitMsg:
@@ -86,6 +99,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.downloadModel.AddTracks(tracks)
+		m.resizeToWindow()
 
 		cmds = append(cmds, m.downloadModel.Init())
 
@@ -137,6 +151,29 @@ func StartUi(client *ya.Client, options ...ya.DownloadOptions) Model {
 		sourceModel:   NewSourceModel(client),
 		downloadModel: NewDownloadModel(client, downloadOptionsOrDefault(options)),
 	}
+}
+
+func (m *Model) resizeToWindow() {
+	if m.windowWidth <= 0 || m.windowHeight <= 0 {
+		return
+	}
+
+	contentHeight := m.windowHeight - rootTopPadding
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	m.tokenModel.Resize(m.windowWidth, contentHeight)
+	m.sourceModel.Resize(m.windowWidth, contentHeight)
+	m.downloadModel.Resize(m.windowWidth, contentHeight)
+}
+
+func responsiveWidth(windowWidth, horizontalChrome, minimum int) int {
+	width := windowWidth - horizontalChrome
+	if width < minimum {
+		return minimum
+	}
+	return width
 }
 
 func (m Model) handleShutdown(reason string) (tea.Model, tea.Cmd) {

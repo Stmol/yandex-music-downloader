@@ -64,7 +64,7 @@ func NewSourceModel(client *ya.Client) SourceModel {
 	urlInput := textinput.New()
 	urlInput.Placeholder = "Enter URL"
 	urlInput.CharLimit = 256
-	urlInput.SetWidth(128)
+	urlInput.SetWidth(minInputWidth)
 	urlInput.Focus()
 
 	s := spinner.New()
@@ -76,6 +76,10 @@ func NewSourceModel(client *ya.Client) SourceModel {
 		urlInput: urlInput,
 		spinner:  s,
 	}
+}
+
+func (m *SourceModel) Resize(width, height int) {
+	m.urlInput.SetWidth(responsiveWidth(width, inputHorizontalChrome, minInputWidth))
 }
 
 func (m SourceModel) Init() tea.Cmd {

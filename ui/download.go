@@ -25,11 +25,12 @@ import (
 
 // Global constants.
 const (
-	outputDir              = "./downloads" // Root directory for downloads.
-	maxConcurrentDownloads = 3             // Maximum number of concurrent downloads.
-	defaultDownloadWidth   = 80
-	defaultTrackListHeight = 18
-	minTrackListHeight     = 6
+	outputDir                = "./downloads" // Root directory for downloads.
+	maxConcurrentDownloads   = 3             // Maximum number of concurrent downloads.
+	defaultDownloadWidth     = 80
+	defaultTrackListHeight   = 18
+	minTrackListHeight       = 6
+	downloadHorizontalChrome = 5
 )
 
 // Global style variables.
@@ -39,7 +40,7 @@ var (
 	borderStyle         = lipgloss.RoundedBorder()
 	actionBarStyle      = lipgloss.NewStyle().MarginLeft(2)
 	actionBarFocusStyle = lipgloss.NewStyle().Margin(1, 0, 0, 0).Border(borderStyle).Padding(0, 1)
-	actionBarBlurStyle  = lipgloss.NewStyle().Margin(1, 0, 0, 1).Padding(1, 1, 0, 1)
+	actionBarBlurStyle  = lipgloss.NewStyle().Margin(1, 0, 0, 1).Padding(1, 1)
 	controlBaseStyle    = lipgloss.NewStyle().MarginRight(1)
 	controlFocusStyle   = controlBaseStyle.Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#4A0549")).Bold(true)
 	controlActiveStyle  = controlBaseStyle.Foreground(lipgloss.Color("#006400")).Bold(true)
@@ -294,11 +295,10 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.windowWidth = msg.Width
-		m.windowHeight = msg.Height
-		m.resizeToWindow()
+		m.Resize(msg.Width, msg.Height)
 
 	case tea.KeyPressMsg:
+		previousFocus := m.focusedView
 		switch {
 		case key.Matches(msg, downloadKeys.Activate):
 			m, cmd = m.activateFocusedControl()
@@ -339,6 +339,9 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 				m.hideDuplicates = !m.hideDuplicates
 				m.updateTrackList()
 			}
+		}
+		if previousFocus != m.focusedView {
+			m.resizeToWindow()
 		}
 
 	case DownloadStartMsg:
@@ -381,19 +384,16 @@ func (m DownloadModel) View() tea.View {
 	return tea.NewView(m.render())
 }
 
-func (m DownloadModel) render() string {
-	header := renderHeader(m.downloadedCount, m.tracksTotalCount, m.downloadableCount, m.errorCount)
-	viewStr := marginLeftStyle.Render(header)
-	viewStr += "\n" + marginLeftStyle.Render(m.selectedTrackInfo) + "\n"
+func (m *DownloadModel) Resize(width, height int) {
+	m.windowWidth = width
+	m.windowHeight = height
+	m.resizeToWindow()
+}
 
-	trackListStyle := baseTrackListStyle
-	if m.focusedView == viewList {
-		trackListStyle = trackListStyle.Border(borderStyle)
-	} else {
-		trackListStyle = trackListStyle.Margin(1)
-	}
-	viewStr += trackListStyle.Render(m.trackList.View()) + "\n"
-	viewStr += marginLeftStyle.Render(m.renderProgress())
+func (m DownloadModel) render() string {
+	viewStr := m.headerBlock()
+	viewStr += "\n" + m.renderTrackList()
+	viewStr += "\n" + marginLeftStyle.Render(m.renderProgress())
 	viewStr += renderActionBar(m)
 	return viewStr
 }
@@ -403,10 +403,7 @@ func (m *DownloadModel) resizeToWindow() {
 		return
 	}
 
-	contentWidth := m.windowWidth - 8
-	if contentWidth < 40 {
-		contentWidth = 40
-	}
+	contentWidth := responsiveWidth(m.windowWidth, downloadHorizontalChrome, 40)
 
 	m.progress.SetWidth(contentWidth)
 	m.help.SetWidth(contentWidth)
@@ -415,16 +412,45 @@ func (m *DownloadModel) resizeToWindow() {
 }
 
 func (m DownloadModel) availableTrackListHeight() int {
-	reservedRows := 13
 	if m.windowHeight <= 0 {
 		return defaultTrackListHeight
 	}
 
-	height := m.windowHeight - reservedRows
+	height := m.windowHeight - m.fixedDownloadHeight()
 	if height < minTrackListHeight {
 		return minTrackListHeight
 	}
 	return height
+}
+
+func (m DownloadModel) fixedDownloadHeight() int {
+	return lipgloss.Height(m.headerBlock()) +
+		1 +
+		m.trackListStyle().GetVerticalFrameSize() +
+		1 +
+		lipgloss.Height(marginLeftStyle.Render(m.renderProgress())) +
+		lipgloss.Height(renderActionBar(m))
+}
+
+func (m DownloadModel) headerBlock() string {
+	header := renderHeader(m.downloadedCount, m.tracksTotalCount, m.downloadableCount, m.errorCount)
+	return marginLeftStyle.Render(header) + "\n" + marginLeftStyle.Render(m.selectedTrackInfo)
+}
+
+func (m DownloadModel) trackListStyle() lipgloss.Style {
+	trackListStyle := baseTrackListStyle
+	if m.focusedView == viewList {
+		return trackListStyle.Border(borderStyle)
+	}
+	return trackListStyle.Margin(1)
+}
+
+func (m DownloadModel) renderTrackList() string {
+	content := m.trackList.View()
+	if missingRows := m.trackList.Height() - lipgloss.Height(content); missingRows > 0 {
+		content += strings.Repeat("\n ", missingRows)
+	}
+	return m.trackListStyle().Render(content)
 }
 
 func (m *DownloadModel) cycleFocus() {
@@ -596,7 +622,7 @@ func (m DownloadModel) renderProgress() string {
 	if m.downloadableCount > 0 {
 		percent = float64(m.downloadedCount) / float64(m.downloadableCount)
 	}
-	return m.progress.ViewAs(percent) + "\n"
+	return m.progress.ViewAs(percent)
 }
 
 func countStatus(tracks []*TrackProgress, status TrackStatus) int {
@@ -797,7 +823,7 @@ func renderActionBar(m DownloadModel) string {
 
 	formatRow := dimGrayForeground.Render("Format ") + formatControls
 	actionRow := dimGrayForeground.Render("Actions") + " " + actionControls
-	content := formatRow + "\n" + actionRow + "\n\n" + m.help.View(downloadKeys)
+	content := formatRow + "\n" + actionRow
 	if m.focusedView == viewList {
 		return actionBarBlurStyle.Render(content)
 	}

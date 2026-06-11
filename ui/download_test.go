@@ -8,6 +8,7 @@ import (
 	"ya-music/ya/model"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -18,6 +19,18 @@ func keyText(text string) tea.KeyPressMsg {
 
 func keyCode(code rune) tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Code: code})
+}
+
+func addReadyTracks(m *DownloadModel, count int) {
+	tracks := make([]model.Track, count)
+	for i := range tracks {
+		tracks[i] = model.Track{
+			ID:        model.FlexibleID(uuid.NewString()),
+			Title:     "Track",
+			Available: true,
+		}
+	}
+	m.AddTracks(tracks)
 }
 
 func TestReset(t *testing.T) {
@@ -207,10 +220,62 @@ func TestWindowResizeShrinksTrackListToAvailableHeight(t *testing.T) {
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
-	assert.Equal(t, 92, updated.trackList.Width())
+	assert.Equal(t, 95, updated.trackList.Width())
 	assert.Equal(t, 17, updated.trackList.Height())
-	assert.Equal(t, 92, updated.progress.Width())
-	assert.Equal(t, 92, updated.help.Width())
+	assert.Equal(t, 95, updated.progress.Width())
+	assert.Equal(t, 95, updated.help.Width())
+}
+
+func TestWindowResizeKeepsRenderedDownloadWithinWindowHeight(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 40)
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	assert.LessOrEqual(t, lipgloss.Height(updated.render()), 30)
+}
+
+func TestWindowResizeRendersTrackListAcrossWindowWidth(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 40)
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	assert.Equal(t, 100, lipgloss.Width(updated.renderTrackList()))
+}
+
+func TestWindowResizeKeepsRoomForFocusedActionBar(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 40)
+	m.focusedView = viewDownloadButton
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	assert.LessOrEqual(t, lipgloss.Height(updated.render()), 30)
+}
+
+func TestActionBarDoesNotRenderHotkeyHelp(t *testing.T) {
+	m := NewDownloadModel(nil)
+
+	actionBar := renderActionBar(m)
+
+	assert.NotContains(t, actionBar, "next")
+	assert.NotContains(t, actionBar, "move horizontally")
+	assert.NotContains(t, actionBar, "activate")
+}
+
+func TestTabFocusDoesNotChangeTrackListHeight(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 40)
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	listHeight := updated.trackList.Height()
+
+	updated, _ = updated.Update(keyCode(tea.KeyTab))
+
+	assert.NotEqual(t, viewList, updated.focusedView)
+	assert.Equal(t, listHeight, updated.trackList.Height())
+	assert.LessOrEqual(t, lipgloss.Height(updated.render()), 30)
 }
 
 func TestWindowResizeKeepsMinimumTrackListHeight(t *testing.T) {

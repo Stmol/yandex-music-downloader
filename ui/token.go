@@ -35,7 +35,7 @@ type (
 func NewTokenModel(client *ya.Client) TokenModel {
 	input := textinput.New()
 	input.Placeholder = "Enter your token..."
-	input.SetWidth(50)
+	input.SetWidth(minInputWidth)
 	input.Focus()
 
 	sp := spinner.New()
@@ -49,6 +49,10 @@ func NewTokenModel(client *ya.Client) TokenModel {
 		displayInput:    false,
 		isCheckingToken: true,
 	}
+}
+
+func (m *TokenModel) Resize(width, height int) {
+	m.inputField.SetWidth(responsiveWidth(width, inputHorizontalChrome, minInputWidth))
 }
 
 func (m TokenModel) Init() tea.Cmd {

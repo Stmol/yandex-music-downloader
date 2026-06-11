@@ -39,6 +39,26 @@ func TestTrackListItemRenderKeepsStatusColumnAlignedForTripleDigitIndexes(t *tes
 	assert.Equal(t, strings.Index(twoDigitRow, "Ready"), strings.Index(threeDigitRow, "Ready"))
 }
 
+func TestTrackListItemRenderFillsListWidth(t *testing.T) {
+	items := []list.Item{
+		TrackListItem{
+			uid: "item",
+			track: &model.Track{
+				Title:   "Intazrin",
+				Artists: []model.Artist{{Name: "D"}},
+			},
+			status: TrackStatusReady,
+		},
+	}
+	modelList := list.New(items, TrackListItem{}, 160, 20)
+	renderer := TrackListItem{}
+
+	var row bytes.Buffer
+	renderer.Render(&row, modelList, 0, items[0])
+
+	assert.Equal(t, 160, ansi.StringWidth(ansi.Strip(row.String())))
+}
+
 func TestTrackListItemDownloadedStatusIncludesFormat(t *testing.T) {
 	items := []list.Item{
 		TrackListItem{
