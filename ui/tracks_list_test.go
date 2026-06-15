@@ -82,3 +82,23 @@ func TestTrackListItemDownloadedStatusDefaultsToMP3(t *testing.T) {
 
 	assert.Equal(t, "✅ MP3", item.statusLabel())
 }
+
+func TestTrackListItemRenderHandlesWideTitleCharacters(t *testing.T) {
+	items := []list.Item{
+		TrackListItem{
+			uid: "item",
+			track: &model.Track{
+				Title:   "広いタイトル🙂",
+				Artists: []model.Artist{{Name: "演奏者"}},
+			},
+			status: TrackStatusReady,
+		},
+	}
+	modelList := list.New(items, TrackListItem{}, 80, 20)
+	renderer := TrackListItem{}
+
+	var row bytes.Buffer
+	renderer.Render(&row, modelList, 0, items[0])
+
+	assert.LessOrEqual(t, ansi.StringWidth(ansi.Strip(row.String())), 80)
+}

@@ -223,7 +223,6 @@ func TestWindowResizeShrinksTrackListToAvailableHeight(t *testing.T) {
 	assert.Equal(t, 95, updated.trackList.Width())
 	assert.Equal(t, 17, updated.trackList.Height())
 	assert.Equal(t, 95, updated.progress.Width())
-	assert.Equal(t, 95, updated.help.Width())
 }
 
 func TestWindowResizeKeepsRenderedDownloadWithinWindowHeight(t *testing.T) {

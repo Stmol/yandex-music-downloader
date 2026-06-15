@@ -56,7 +56,6 @@ func TestWindowSizeMsgIsStoredAndAppliedToChildModels(t *testing.T) {
 	assert.Equal(t, 116, updated.sourceModel.urlInput.Width())
 	assert.Equal(t, 115, updated.downloadModel.trackList.Width())
 	assert.Equal(t, 115, updated.downloadModel.progress.Width())
-	assert.Equal(t, 115, updated.downloadModel.help.Width())
 }
 
 func TestTokenOkAppliesStoredWindowSizeToSourceModel(t *testing.T) {
@@ -90,7 +89,6 @@ func TestSourceSubmitAppliesStoredWindowSizeToDownloadModel(t *testing.T) {
 	assert.Equal(t, 95, updated.downloadModel.trackList.Width())
 	assert.Equal(t, 15, updated.downloadModel.trackList.Height())
 	assert.Equal(t, 95, updated.downloadModel.progress.Width())
-	assert.Equal(t, 95, updated.downloadModel.help.Width())
 }
 
 func TestDownloadViewFitsInsideStoredWindowHeight(t *testing.T) {

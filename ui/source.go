@@ -87,11 +87,11 @@ func (m SourceModel) Init() tea.Cmd {
 }
 
 // Reset clears the URL field and errors so the source screen is ready for a new link (e.g. after Back to URL).
-func (m *SourceModel) Reset() {
+func (m *SourceModel) Reset() tea.Cmd {
 	m.urlInput.SetValue("")
 	m.errorMsg = ""
 	m.isProcessing = false
-	m.urlInput.Focus()
+	return m.urlInput.Focus()
 }
 
 func (m SourceModel) Update(msg tea.Msg) (SourceModel, tea.Cmd) {

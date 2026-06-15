@@ -13,7 +13,6 @@ import (
 	"ya-music/ya"
 	"ya-music/ya/model"
 
-	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/progress"
@@ -27,7 +26,6 @@ import (
 const (
 	outputDir                = "./downloads" // Root directory for downloads.
 	maxConcurrentDownloads   = 3             // Maximum number of concurrent downloads.
-	defaultDownloadWidth     = 80
 	defaultTrackListHeight   = 18
 	minTrackListHeight       = 6
 	downloadHorizontalChrome = 5
@@ -38,7 +36,6 @@ var (
 	marginLeftStyle     = lipgloss.NewStyle().MarginLeft(2)
 	baseTrackListStyle  = lipgloss.NewStyle().PaddingRight(3)
 	borderStyle         = lipgloss.RoundedBorder()
-	actionBarStyle      = lipgloss.NewStyle().MarginLeft(2)
 	actionBarFocusStyle = lipgloss.NewStyle().Margin(1, 0, 0, 0).Border(borderStyle).Padding(0, 1)
 	actionBarBlurStyle  = lipgloss.NewStyle().Margin(1, 0, 0, 1).Padding(1, 1)
 	controlBaseStyle    = lipgloss.NewStyle().MarginRight(1)
@@ -119,19 +116,6 @@ type downloadKeyMap struct {
 	Duplicates key.Binding
 }
 
-func (k downloadKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Next, k.Left, k.Up, k.Activate, k.FocusList, k.Duplicates}
-}
-
-func (k downloadKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{
-		{k.Next, k.Prev},
-		{k.Left, k.Up},
-		{k.Activate, k.FocusList},
-		{k.Duplicates},
-	}
-}
-
 // TrackProgress represents the download progress and state of a track.
 type TrackProgress struct {
 	uid      string
@@ -157,7 +141,6 @@ type DownloadModel struct {
 	spinner   spinner.Model
 	progress  progress.Model
 	trackList list.Model
-	help      help.Model
 
 	// Download progress channels and tracking.
 	tpUpdateCh     chan TrackProgress
@@ -207,16 +190,12 @@ func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) Download
 		}
 	}
 
-	h := help.New()
-	h.SetWidth(defaultDownloadWidth)
-
 	return DownloadModel{
 		client:            client,
 		downloadOptions:   downloadOptionsOrDefault(options),
 		spinner:           sp,
 		progress:          p,
 		trackList:         l,
-		help:              h,
 		tracksProgress:    []*TrackProgress{},
 		focusedView:       viewList,
 		lastActionFocus:   viewFormatMP3,
@@ -284,7 +263,7 @@ func (m *DownloadModel) AddTracks(tracks []model.Track) {
 	}
 }
 
-func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
+func (m *DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
 
@@ -301,7 +280,7 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 		previousFocus := m.focusedView
 		switch {
 		case key.Matches(msg, downloadKeys.Activate):
-			m, cmd = m.activateFocusedControl()
+			*m, cmd = m.activateFocusedControl()
 
 		case key.Matches(msg, downloadKeys.Next):
 			m.focusNext()
@@ -367,7 +346,7 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 		}
 		if m.quitAfterCancel {
 			m.quitAfterCancel = false
-			return m, tea.Quit
+			return *m, tea.Quit
 		}
 
 	case ListSelectedItemMsg, list.FilterMatchesMsg:
@@ -377,7 +356,7 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 	}
 
 	cmds = append(cmds, cmd)
-	return m, tea.Batch(cmds...)
+	return *m, tea.Batch(cmds...)
 }
 
 func (m DownloadModel) View() tea.View {
@@ -406,7 +385,6 @@ func (m *DownloadModel) resizeToWindow() {
 	contentWidth := responsiveWidth(m.windowWidth, downloadHorizontalChrome, 40)
 
 	m.progress.SetWidth(contentWidth)
-	m.help.SetWidth(contentWidth)
 	m.trackList.SetWidth(contentWidth)
 	m.trackList.SetHeight(m.availableTrackListHeight())
 }
@@ -648,7 +626,7 @@ func renderCounter(label string, value int) string {
 	return dimGrayForeground.Render(label+":") + " " + fmt.Sprintf("%d", value)
 }
 
-func (m DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
+func (m *DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 	switch m.focusedView {
 	case viewFormatMP3:
 		if !m.isDownloading {
@@ -662,12 +640,12 @@ func (m DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 
 	case viewBackButton:
 		if !m.isDownloading {
-			return m, func() tea.Msg { return BackToURLMsg{} }
+			return *m, func() tea.Msg { return BackToURLMsg{} }
 		}
 
 	case viewDownloadButton:
 		if m.isDownloading {
-			return m, nil
+			return *m, nil
 		}
 		m.isDownloading = true
 		m.resetState()
@@ -675,22 +653,22 @@ func (m DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 		m.tpUpdateCh = make(chan TrackProgress)
 
 		utils.CreateDirIfNotExists(outputDir)
-		return m, m.downloadTracks(m.tpUpdateCh, m.tracksProgress)
+		return *m, m.downloadTracks(m.tpUpdateCh, m.tracksProgress)
 
 	case viewQuitButton:
 		if m.isDownloading {
 			m.requestShutdown("quit_button", false)
-			return m, nil
+			return *m, nil
 		}
 
 		downloadLogger(m.client).Info("application quit requested",
 			"reason", "quit_button",
 			"is_downloading", false,
 		)
-		return m, tea.Quit
+		return *m, tea.Quit
 	}
 
-	return m, nil
+	return *m, nil
 }
 
 func (m *DownloadModel) focusNext() {

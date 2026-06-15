@@ -10,10 +10,10 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/mattn/go-runewidth"
 )
 
 var (
-	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
 	selectedItemStyle = lipgloss.NewStyle().Background(lipgloss.Color("170"))
 	emptyItemStyle    = lipgloss.NewStyle()
 
@@ -31,7 +31,6 @@ var (
 	downloadedStatusStyle    = greenForeground
 	errorStatusStyle         = redForeground
 	notAvailableStatusStyle  = redForeground
-	unknownStatusStyle       = dimGrayForeground
 	alreadyExistsStatusStyle = greenForeground
 )
 
@@ -69,8 +68,6 @@ func (t TrackStatus) String() string {
 }
 
 type ListSelectedItemMsg string
-type ListHasFocusMsg struct{}
-type ListLostFocusMsg struct{}
 
 type TrackListItem struct {
 	uid    string
@@ -201,23 +198,27 @@ func trackText(title, desc string) string {
 }
 
 func splitTrackText(displayText, title string) (string, string) {
-	titleRunes := []rune(title)
-	displayRunes := []rune(displayText)
+	titleWidth := runewidth.StringWidth(title)
+	currentWidth := 0
 
-	if len(displayRunes) <= len(titleRunes) {
-		return displayText, ""
+	for i, r := range displayText {
+		if currentWidth >= titleWidth && r == ' ' {
+			return displayText[:i+1], displayText[i+1:]
+		}
+
+		currentWidth += runewidth.RuneWidth(r)
 	}
 
-	return string(displayRunes[:len(titleRunes)+1]), string(displayRunes[len(titleRunes)+1:])
+	return displayText, ""
 }
 
 func truncateToWidth(s string, width int) string {
-	if lipgloss.Width(s) <= width {
+	if runewidth.StringWidth(s) <= width {
 		return s
 	}
 
 	dots := "..."
-	dotsWidth := lipgloss.Width(dots)
+	dotsWidth := runewidth.StringWidth(dots)
 	if width <= dotsWidth {
 		return strings.Repeat(".", width)
 	}
@@ -225,7 +226,7 @@ func truncateToWidth(s string, width int) string {
 	var b strings.Builder
 	currentWidth := 0
 	for _, r := range s {
-		runeWidth := lipgloss.Width(string(r))
+		runeWidth := runewidth.RuneWidth(r)
 		if currentWidth+runeWidth > width-dotsWidth {
 			break
 		}

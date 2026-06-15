@@ -25,12 +25,9 @@ const (
 
 var (
 	redForeground     = lipgloss.NewStyle().Foreground(lipgloss.Color("#CC0000"))
-	whiteForeground   = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
 	greenForeground   = lipgloss.NewStyle().Foreground(lipgloss.Color("#006400"))
-	orangeForeground  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF8C00"))
 	grayForeground    = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
 	dimGrayForeground = lipgloss.NewStyle().Foreground(lipgloss.Color("#808080"))
-	spinnerForeground = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	boldStyle         = lipgloss.NewStyle().Bold(true)
 	boldRedStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
 	spinnerStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
@@ -74,9 +71,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case BackToURLMsg:
 		m.initState = UiStateSelectSource
 		m.downloadModel.Reset()
-		m.sourceModel.Reset()
 		m.resizeToWindow()
-		return m, m.sourceModel.Init()
+		return m, m.sourceModel.Reset()
 
 	case TokenOkMsg:
 		m.initState = UiStateSelectSource
