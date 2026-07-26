@@ -514,10 +514,25 @@ func (c *Client) downloadTrackLossless(track model.Track, outputDir string, opti
 			return filename, fmt.Errorf("failed to write flac tags: %w", err)
 		}
 	case "flac-mp4":
-		c.logTrack(slog.LevelWarn, trackCtx, "lossless metadata skipped",
-			"stage", "lossless_tags",
+		coverCh := c.startCoverDownload(track, filename, options)
+		cover := c.waitCoverDownload(trackCtx, coverCh)
+		if cover.filename != "" {
+			coverFilename = cover.filename
+			defer c.removeCoverFile(trackCtx, cover.filename)
+		}
+
+		if err := writeM4ATags(tempFilename, track, cover.filename); err != nil {
+			c.logTrackFailure(trackCtx, "m4a_tags", err,
+				"filename", filename,
+				"cover_filename", cover.filename,
+			)
+			return filename, fmt.Errorf("failed to write m4a tags: %w", err)
+		}
+		c.logTrack(slog.LevelInfo, trackCtx, "m4a metadata written",
+			"stage", "m4a_tags",
 			"codec", info.Codec,
 			"filename", filename,
+			"cover_filename", cover.filename,
 		)
 	default:
 		err := fmt.Errorf("%w: codec %q", lossless.ErrNoFLACDownloadInfo, info.Codec)
