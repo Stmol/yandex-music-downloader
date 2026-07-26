@@ -40,6 +40,7 @@ func TestWriteID3TagsWritesBasicMetadataAndCover(t *testing.T) {
 		},
 		Albums: []model.Album{
 			{
+				ID:          model.FlexibleID("456"),
 				Title:       "Album",
 				Genre:       "indie",
 				Year:        2025,
@@ -77,6 +78,12 @@ func TestWriteID3TagsWritesBasicMetadataAndCover(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, yandexTrackOwnerIdentifier, ufid.OwnerIdentifier)
 	assert.Equal(t, []byte("123"), ufid.Identifier)
+
+	comments := tag.GetFrames(tag.CommonID("Comments"))
+	require.Len(t, comments, 1)
+	comment, ok := comments[0].(id3v2.CommentFrame)
+	require.True(t, ok)
+	assert.Equal(t, "https://music.yandex.ru/album/456/track/123", comment.Text)
 }
 
 func TestWriteID3TagsUsesReleaseDateYearFallback(t *testing.T) {

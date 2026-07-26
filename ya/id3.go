@@ -57,6 +57,15 @@ func writeID3Tags(filename string, track model.Track, coverPath string) error {
 		})
 	}
 
+	if trackURL := yandexTrackURL(track); trackURL != "" {
+		tag.DeleteFrames(tag.CommonID("Comments"))
+		tag.AddCommentFrame(id3v2.CommentFrame{
+			Encoding: id3v2.EncodingUTF8,
+			Language: "eng",
+			Text:     trackURL,
+		})
+	}
+
 	if picture, ok := readCoverPicture(coverPath); ok {
 		tag.DeleteFrames(tag.CommonID("Attached picture"))
 		tag.AddAttachedPicture(picture)
