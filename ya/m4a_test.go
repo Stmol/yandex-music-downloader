@@ -5,11 +5,153 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"ya-music/ya/model"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tommyo123/mtag"
 )
+
+func TestM4ATagInputForTrack(t *testing.T) {
+	cover := onePixelPNG()
+
+	tests := []struct {
+		name      string
+		track     model.Track
+		album     model.Album
+		coverMIME string
+		cover     []byte
+		want      m4aTagInput
+	}{
+		{
+			name: "full album",
+			track: model.Track{
+				ID:      model.FlexibleID("123"),
+				Title:   "Song",
+				Version: "Live",
+				Artists: []model.Artist{{Name: "Artist A"}, {Name: "Artist B"}},
+				Albums: []model.Album{{
+					ID:    model.FlexibleID("456"),
+					Title: "Album",
+					Year:  2025,
+				}},
+			},
+			album: model.Album{
+				ID:         model.FlexibleID("456"),
+				Title:      "Album",
+				Genre:      "indie",
+				Year:       2025,
+				TrackCount: 11,
+				TrackPosition: model.TrackPosition{
+					Volume: 2,
+					Index:  3,
+				},
+				Volumes: [][]model.Track{{}, {}, {}, {}},
+			},
+			coverMIME: "image/png",
+			cover:     cover,
+			want: m4aTagInput{
+				Title:       "Song Live",
+				Artist:      "Artist A, Artist B",
+				Album:       "Album",
+				AlbumArtist: "Artist A, Artist B",
+				Genre:       "indie",
+				Year:        2025,
+				Track:       3,
+				TrackTotal:  11,
+				Disc:        2,
+				DiscTotal:   4,
+				SourceURL:   "https://music.yandex.ru/album/456/track/123",
+				CoverMIME:   "image/png",
+				CoverData:   cover,
+			},
+		},
+		{
+			name: "compilation missing album",
+			track: model.Track{
+				ID:      model.FlexibleID("99"),
+				Title:   "Standalone",
+				Artists: []model.Artist{{Name: "Solo"}},
+			},
+			want: m4aTagInput{
+				Title:     "Standalone",
+				Artist:    "Solo",
+				SourceURL: "https://music.yandex.ru/track/99",
+			},
+		},
+		{
+			name: "missing year",
+			track: model.Track{
+				ID:      model.FlexibleID("7"),
+				Title:   "No Year",
+				Artists: []model.Artist{{Name: "Artist"}},
+				Albums: []model.Album{{
+					ID:    model.FlexibleID("8"),
+					Title: "Album",
+				}},
+			},
+			album: model.Album{
+				ID:    model.FlexibleID("8"),
+				Title: "Album",
+			},
+			want: m4aTagInput{
+				Title:       "No Year",
+				Artist:      "Artist",
+				Album:       "Album",
+				AlbumArtist: "Artist",
+				SourceURL:   "https://music.yandex.ru/album/8/track/7",
+			},
+		},
+		{
+			name: "missing track position",
+			track: model.Track{
+				ID:      model.FlexibleID("5"),
+				Title:   "No Position",
+				Artists: []model.Artist{{Name: "Artist"}},
+				Albums: []model.Album{{
+					ID:    model.FlexibleID("6"),
+					Title: "Album",
+					Year:  2020,
+				}},
+			},
+			album: model.Album{
+				ID:    model.FlexibleID("6"),
+				Title: "Album",
+				Year:  2020,
+			},
+			want: m4aTagInput{
+				Title:       "No Position",
+				Artist:      "Artist",
+				Album:       "Album",
+				AlbumArtist: "Artist",
+				Year:        2020,
+				SourceURL:   "https://music.yandex.ru/album/6/track/5",
+			},
+		},
+		{
+			name: "empty cover",
+			track: model.Track{
+				ID:      model.FlexibleID("1"),
+				Title:   "Song",
+				Artists: []model.Artist{{Name: "Artist"}},
+			},
+			coverMIME: "image/png",
+			cover:     nil,
+			want: m4aTagInput{
+				Title:     "Song",
+				Artist:    "Artist",
+				SourceURL: "https://music.yandex.ru/track/1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := m4aTagInputForTrack(tt.track, tt.album, tt.coverMIME, tt.cover)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
 
 func TestWriteM4ATagsWritesFieldsAndCover(t *testing.T) {
 	path := copyFixture(t, "taggable-stco.m4a")

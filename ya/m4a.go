@@ -2,7 +2,11 @@ package ya
 
 import (
 	"fmt"
+	"net/http"
+	"os"
+	"strconv"
 	"strings"
+	"ya-music/ya/model"
 
 	"github.com/tommyo123/mtag"
 )
@@ -28,6 +32,64 @@ type m4aTagInput struct {
 	SourceURL   string
 	CoverMIME   string
 	CoverData   []byte
+}
+
+func m4aTagInputForTrack(track model.Track, album model.Album, coverMIME string, cover []byte) m4aTagInput {
+	tags := m4aTagInput{
+		Title:     strings.TrimSpace(track.FullTitle()),
+		Artist:    strings.TrimSpace(track.ArtistsString()),
+		SourceURL: yandexTrackURL(track),
+	}
+
+	if albumTitle := strings.TrimSpace(album.Title); albumTitle != "" {
+		tags.Album = albumTitle
+		tags.AlbumArtist = strings.TrimSpace(track.ArtistsString())
+	}
+	if genre := strings.TrimSpace(album.Genre); genre != "" {
+		tags.Genre = genre
+	}
+	if album.TrackPosition.Index > 0 {
+		tags.Track = album.TrackPosition.Index
+	}
+	if album.TrackCount > 0 {
+		tags.TrackTotal = album.TrackCount
+	}
+	if album.TrackPosition.Volume > 0 {
+		tags.Disc = album.TrackPosition.Volume
+	}
+	if len(album.Volumes) > 0 {
+		tags.DiscTotal = len(album.Volumes)
+	}
+	if year := trackYear(track); year != "" {
+		if parsed, err := strconv.Atoi(year); err == nil {
+			tags.Year = parsed
+		}
+	}
+	if strings.TrimSpace(coverMIME) != "" && len(cover) > 0 {
+		tags.CoverMIME = coverMIME
+		tags.CoverData = cover
+	}
+
+	return tags
+}
+
+func readM4ACoverData(coverPath string) (string, []byte, bool) {
+	if strings.TrimSpace(coverPath) == "" {
+		return "", nil, false
+	}
+
+	data, err := os.ReadFile(coverPath)
+	if err != nil || len(data) == 0 {
+		return "", nil, false
+	}
+
+	mimeType := http.DetectContentType(data)
+	switch mimeType {
+	case "image/jpeg", "image/png":
+		return mimeType, data, true
+	default:
+		return "", nil, false
+	}
 }
 
 func writeM4ATags(path string, tags m4aTagInput) error {
