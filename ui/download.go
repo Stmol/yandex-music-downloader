@@ -13,23 +13,22 @@ import (
 	"ya-music/ya"
 	"ya-music/ya/model"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/progress"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/google/uuid"
 )
 
 // Global constants.
 const (
-	outputDir              = "./downloads" // Root directory for downloads.
-	maxConcurrentDownloads = 3             // Maximum number of concurrent downloads.
-	defaultDownloadWidth   = 80
-	defaultTrackListHeight = 18
-	minTrackListHeight     = 6
+	outputDir                = "./downloads" // Root directory for downloads.
+	maxConcurrentDownloads   = 3             // Maximum number of concurrent downloads.
+	defaultTrackListHeight   = 18
+	minTrackListHeight       = 6
+	downloadHorizontalChrome = 5
 )
 
 // Global style variables.
@@ -37,9 +36,8 @@ var (
 	marginLeftStyle     = lipgloss.NewStyle().MarginLeft(2)
 	baseTrackListStyle  = lipgloss.NewStyle().PaddingRight(3)
 	borderStyle         = lipgloss.RoundedBorder()
-	actionBarStyle      = lipgloss.NewStyle().MarginLeft(2)
 	actionBarFocusStyle = lipgloss.NewStyle().Margin(1, 0, 0, 0).Border(borderStyle).Padding(0, 1)
-	actionBarBlurStyle  = lipgloss.NewStyle().Margin(1, 0, 0, 1).Padding(1, 1, 0, 1)
+	actionBarBlurStyle  = lipgloss.NewStyle().Margin(1, 0, 0, 1).Padding(1, 1)
 	controlBaseStyle    = lipgloss.NewStyle().MarginRight(1)
 	controlFocusStyle   = controlBaseStyle.Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#4A0549")).Bold(true)
 	controlActiveStyle  = controlBaseStyle.Foreground(lipgloss.Color("#006400")).Bold(true)
@@ -93,7 +91,7 @@ var downloadKeys = downloadKeyMap{
 		key.WithHelp("", ""),
 	),
 	Activate: key.NewBinding(
-		key.WithKeys("enter", " "),
+		key.WithKeys("enter", "space"),
 		key.WithHelp("enter/space", "activate"),
 	),
 	FocusList: key.NewBinding(
@@ -116,19 +114,6 @@ type downloadKeyMap struct {
 	Activate   key.Binding
 	FocusList  key.Binding
 	Duplicates key.Binding
-}
-
-func (k downloadKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Next, k.Left, k.Up, k.Activate, k.FocusList, k.Duplicates}
-}
-
-func (k downloadKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{
-		{k.Next, k.Prev},
-		{k.Left, k.Up},
-		{k.Activate, k.FocusList},
-		{k.Duplicates},
-	}
 }
 
 // TrackProgress represents the download progress and state of a track.
@@ -156,7 +141,6 @@ type DownloadModel struct {
 	spinner   spinner.Model
 	progress  progress.Model
 	trackList list.Model
-	help      help.Model
 
 	// Download progress channels and tracking.
 	tpUpdateCh     chan TrackProgress
@@ -186,7 +170,7 @@ func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) Download
 	sp.Style = spinnerStyle
 
 	p := progress.New(
-		progress.WithDefaultGradient(),
+		progress.WithDefaultBlend(),
 		progress.WithWidth(75),
 		progress.WithoutPercentage(),
 	)
@@ -206,16 +190,12 @@ func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) Download
 		}
 	}
 
-	h := help.New()
-	h.Width = defaultDownloadWidth
-
 	return DownloadModel{
 		client:            client,
 		downloadOptions:   downloadOptionsOrDefault(options),
 		spinner:           sp,
 		progress:          p,
 		trackList:         l,
-		help:              h,
 		tracksProgress:    []*TrackProgress{},
 		focusedView:       viewList,
 		lastActionFocus:   viewFormatMP3,
@@ -283,7 +263,7 @@ func (m *DownloadModel) AddTracks(tracks []model.Track) {
 	}
 }
 
-func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
+func (m *DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
 
@@ -294,14 +274,13 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.windowWidth = msg.Width
-		m.windowHeight = msg.Height
-		m.resizeToWindow()
+		m.Resize(msg.Width, msg.Height)
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
+		previousFocus := m.focusedView
 		switch {
 		case key.Matches(msg, downloadKeys.Activate):
-			m, cmd = m.activateFocusedControl()
+			*m, cmd = m.activateFocusedControl()
 
 		case key.Matches(msg, downloadKeys.Next):
 			m.focusNext()
@@ -340,6 +319,9 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 				m.updateTrackList()
 			}
 		}
+		if previousFocus != m.focusedView {
+			m.resizeToWindow()
+		}
 
 	case DownloadStartMsg:
 		m.updateTrackList()
@@ -364,7 +346,7 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 		}
 		if m.quitAfterCancel {
 			m.quitAfterCancel = false
-			return m, tea.Quit
+			return *m, tea.Quit
 		}
 
 	case ListSelectedItemMsg, list.FilterMatchesMsg:
@@ -374,22 +356,23 @@ func (m DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 	}
 
 	cmds = append(cmds, cmd)
-	return m, tea.Batch(cmds...)
+	return *m, tea.Batch(cmds...)
 }
 
-func (m DownloadModel) View() string {
-	header := renderHeader(m.downloadedCount, m.tracksTotalCount, m.downloadableCount, m.errorCount)
-	viewStr := marginLeftStyle.Render(header)
-	viewStr += "\n" + marginLeftStyle.Render(m.selectedTrackInfo) + "\n"
+func (m DownloadModel) View() tea.View {
+	return tea.NewView(m.render())
+}
 
-	trackListStyle := baseTrackListStyle
-	if m.focusedView == viewList {
-		trackListStyle = trackListStyle.Border(borderStyle)
-	} else {
-		trackListStyle = trackListStyle.Margin(1)
-	}
-	viewStr += trackListStyle.Render(m.trackList.View()) + "\n"
-	viewStr += marginLeftStyle.Render(m.renderProgress())
+func (m *DownloadModel) Resize(width, height int) {
+	m.windowWidth = width
+	m.windowHeight = height
+	m.resizeToWindow()
+}
+
+func (m DownloadModel) render() string {
+	viewStr := m.headerBlock()
+	viewStr += "\n" + m.renderTrackList()
+	viewStr += "\n" + marginLeftStyle.Render(m.renderProgress())
 	viewStr += renderActionBar(m)
 	return viewStr
 }
@@ -399,28 +382,53 @@ func (m *DownloadModel) resizeToWindow() {
 		return
 	}
 
-	contentWidth := m.windowWidth - 8
-	if contentWidth < 40 {
-		contentWidth = 40
-	}
+	contentWidth := responsiveWidth(m.windowWidth, downloadHorizontalChrome, 40)
 
-	m.progress.Width = contentWidth
-	m.help.Width = contentWidth
+	m.progress.SetWidth(contentWidth)
 	m.trackList.SetWidth(contentWidth)
 	m.trackList.SetHeight(m.availableTrackListHeight())
 }
 
 func (m DownloadModel) availableTrackListHeight() int {
-	reservedRows := 13
 	if m.windowHeight <= 0 {
 		return defaultTrackListHeight
 	}
 
-	height := m.windowHeight - reservedRows
+	height := m.windowHeight - m.fixedDownloadHeight()
 	if height < minTrackListHeight {
 		return minTrackListHeight
 	}
 	return height
+}
+
+func (m DownloadModel) fixedDownloadHeight() int {
+	return lipgloss.Height(m.headerBlock()) +
+		1 +
+		m.trackListStyle().GetVerticalFrameSize() +
+		1 +
+		lipgloss.Height(marginLeftStyle.Render(m.renderProgress())) +
+		lipgloss.Height(renderActionBar(m))
+}
+
+func (m DownloadModel) headerBlock() string {
+	header := renderHeader(m.downloadedCount, m.tracksTotalCount, m.downloadableCount, m.errorCount)
+	return marginLeftStyle.Render(header) + "\n" + marginLeftStyle.Render(m.selectedTrackInfo)
+}
+
+func (m DownloadModel) trackListStyle() lipgloss.Style {
+	trackListStyle := baseTrackListStyle
+	if m.focusedView == viewList {
+		return trackListStyle.Border(borderStyle)
+	}
+	return trackListStyle.Margin(1)
+}
+
+func (m DownloadModel) renderTrackList() string {
+	content := m.trackList.View()
+	if missingRows := m.trackList.Height() - lipgloss.Height(content); missingRows > 0 {
+		content += strings.Repeat("\n ", missingRows)
+	}
+	return m.trackListStyle().Render(content)
 }
 
 func (m *DownloadModel) cycleFocus() {
@@ -592,7 +600,7 @@ func (m DownloadModel) renderProgress() string {
 	if m.downloadableCount > 0 {
 		percent = float64(m.downloadedCount) / float64(m.downloadableCount)
 	}
-	return m.progress.ViewAs(percent) + "\n"
+	return m.progress.ViewAs(percent)
 }
 
 func countStatus(tracks []*TrackProgress, status TrackStatus) int {
@@ -618,7 +626,7 @@ func renderCounter(label string, value int) string {
 	return dimGrayForeground.Render(label+":") + " " + fmt.Sprintf("%d", value)
 }
 
-func (m DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
+func (m *DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 	switch m.focusedView {
 	case viewFormatMP3:
 		if !m.isDownloading {
@@ -632,12 +640,12 @@ func (m DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 
 	case viewBackButton:
 		if !m.isDownloading {
-			return m, func() tea.Msg { return BackToURLMsg{} }
+			return *m, func() tea.Msg { return BackToURLMsg{} }
 		}
 
 	case viewDownloadButton:
 		if m.isDownloading {
-			return m, nil
+			return *m, nil
 		}
 		m.isDownloading = true
 		m.resetState()
@@ -645,22 +653,22 @@ func (m DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 		m.tpUpdateCh = make(chan TrackProgress)
 
 		utils.CreateDirIfNotExists(outputDir)
-		return m, m.downloadTracks(m.tpUpdateCh, m.tracksProgress)
+		return *m, m.downloadTracks(m.tpUpdateCh, m.tracksProgress)
 
 	case viewQuitButton:
 		if m.isDownloading {
 			m.requestShutdown("quit_button", false)
-			return m, nil
+			return *m, nil
 		}
 
 		downloadLogger(m.client).Info("application quit requested",
 			"reason", "quit_button",
 			"is_downloading", false,
 		)
-		return m, tea.Quit
+		return *m, tea.Quit
 	}
 
-	return m, nil
+	return *m, nil
 }
 
 func (m *DownloadModel) focusNext() {
@@ -793,7 +801,7 @@ func renderActionBar(m DownloadModel) string {
 
 	formatRow := dimGrayForeground.Render("Format ") + formatControls
 	actionRow := dimGrayForeground.Render("Actions") + " " + actionControls
-	content := formatRow + "\n" + actionRow + "\n\n" + m.help.View(downloadKeys)
+	content := formatRow + "\n" + actionRow
 	if m.focusedView == viewList {
 		return actionBarBlurStyle.Render(content)
 	}

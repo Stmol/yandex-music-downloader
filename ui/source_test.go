@@ -140,3 +140,19 @@ func TestSourceParseURLRejectsMalformedPlaylistUUID(t *testing.T) {
 
 	assert.Nil(t, msg)
 }
+
+func TestSourceResizeExpandsURLInputToWindowWidth(t *testing.T) {
+	m := NewSourceModel(nil)
+
+	m.Resize(120, 40)
+
+	assert.Equal(t, 116, m.urlInput.Width())
+}
+
+func TestSourceResizeKeepsMinimumURLInputWidth(t *testing.T) {
+	m := NewSourceModel(nil)
+
+	m.Resize(10, 40)
+
+	assert.Equal(t, minInputWidth, m.urlInput.Width())
+}

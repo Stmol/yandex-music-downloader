@@ -7,9 +7,9 @@ import (
 	"ya-music/ya"
 	"ya-music/ya/model"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
 )
 
@@ -64,7 +64,7 @@ func NewSourceModel(client *ya.Client) SourceModel {
 	urlInput := textinput.New()
 	urlInput.Placeholder = "Enter URL"
 	urlInput.CharLimit = 256
-	urlInput.Width = 128
+	urlInput.SetWidth(minInputWidth)
 	urlInput.Focus()
 
 	s := spinner.New()
@@ -78,16 +78,20 @@ func NewSourceModel(client *ya.Client) SourceModel {
 	}
 }
 
+func (m *SourceModel) Resize(width, height int) {
+	m.urlInput.SetWidth(responsiveWidth(width, inputHorizontalChrome, minInputWidth))
+}
+
 func (m SourceModel) Init() tea.Cmd {
 	return textinput.Blink
 }
 
 // Reset clears the URL field and errors so the source screen is ready for a new link (e.g. after Back to URL).
-func (m *SourceModel) Reset() {
+func (m *SourceModel) Reset() tea.Cmd {
 	m.urlInput.SetValue("")
 	m.errorMsg = ""
 	m.isProcessing = false
-	m.urlInput.Focus()
+	return m.urlInput.Focus()
 }
 
 func (m SourceModel) Update(msg tea.Msg) (SourceModel, tea.Cmd) {
@@ -98,8 +102,8 @@ func (m SourceModel) Update(msg tea.Msg) (SourceModel, tea.Cmd) {
 	cmds = append(cmds, cmd)
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.Type == tea.KeyEnter && !m.isProcessing {
+	case tea.KeyPressMsg:
+		if msg.String() == "enter" && !m.isProcessing {
 			return m.handleEnterKey()
 		}
 
@@ -231,7 +235,11 @@ func (m *SourceModel) fetchPlaylist(msg URLSubmitMsg) (*model.Playlist, error) {
 	}
 }
 
-func (m SourceModel) View() string {
+func (m SourceModel) View() tea.View {
+	return tea.NewView(m.render())
+}
+
+func (m SourceModel) render() string {
 	s := "What do you want to download?\n\n"
 	s += dimGrayForeground.Render("Examples of URL:")
 	s += dimGrayForeground.Render("\n- Track: https://music.yandex.ru/album/1231231/track/12312345")

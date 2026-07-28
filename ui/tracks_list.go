@@ -5,16 +5,15 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 	"ya-music/ya/model"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/mattn/go-runewidth"
 )
 
 var (
-	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
 	selectedItemStyle = lipgloss.NewStyle().Background(lipgloss.Color("170"))
 	emptyItemStyle    = lipgloss.NewStyle()
 
@@ -32,7 +31,6 @@ var (
 	downloadedStatusStyle    = greenForeground
 	errorStatusStyle         = redForeground
 	notAvailableStatusStyle  = redForeground
-	unknownStatusStyle       = dimGrayForeground
 	alreadyExistsStatusStyle = greenForeground
 )
 
@@ -70,8 +68,6 @@ func (t TrackStatus) String() string {
 }
 
 type ListSelectedItemMsg string
-type ListHasFocusMsg struct{}
-type ListLostFocusMsg struct{}
 
 type TrackListItem struct {
 	uid    string
@@ -102,7 +98,7 @@ func (t TrackListItem) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 	currItem := m.SelectedItem().(TrackListItem)
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "up", "k", "down", "j", "left", "right", "l", "h", "g", "G", "end", "home", "pgup", "pgdn":
 			return func() tea.Msg {
@@ -122,33 +118,8 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 
 	title := item.Title()
 	desc := item.Description()
-	maxLen := 50
-	maxDescLen := 10
-	dots := "..."
 
-	combined := fmt.Sprintf("%s %s", title, desc)
-	if utf8.RuneCountInString(combined) > maxLen {
-		availableSpace := maxLen - utf8.RuneCountInString(title) - 1 - utf8.RuneCountInString(dots) // 1 for space
-		if availableSpace >= maxDescLen {
-			descRunes := []rune(desc)
-			desc = string(descRunes[:availableSpace])
-			combined = fmt.Sprintf("%s %s%s", title, desc, dots)
-		} else {
-			titleRunes := []rune(title)
-			descRunes := []rune(desc)
-			title = string(titleRunes[:maxLen-maxDescLen-1-utf8.RuneCountInString(dots)]) + dots // Add dots to the truncated title
-			if utf8.RuneCountInString(desc) > maxDescLen {
-				desc = string(descRunes[:maxDescLen-utf8.RuneCountInString(dots)]) + dots
-			}
-			combined = fmt.Sprintf("%s %s", title, desc)
-		}
-	}
-
-	titleRunes := []rune(title)
-	titlePart := string([]rune(combined)[:len(titleRunes)+1])
-	descPart := string([]rune(combined)[len(titleRunes)+1:])
-	padding := strings.Repeat(" ", maxLen-utf8.RuneCountInString(combined)+2)
-	statusStr := fmt.Sprintf("%-15s", item.statusLabel())
+	statusStr := fmt.Sprintf("%-*s", trackStatusColumnWidth, item.statusLabel())
 
 	switch item.status {
 	case TrackStatusDuplicate:
@@ -185,9 +156,23 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 	}
 
 	if isSelected {
-		statusStr = fmt.Sprintf("%-15s", item.statusLabel())
+		statusStr = fmt.Sprintf("%-*s", trackStatusColumnWidth, item.statusLabel())
 		statusStr = selectedItemStyle.Render(statusStr)
 	}
+
+	textWidth := m.Width() - lipgloss.Width(trackNumberStyleToUse.Render(trackNumber)) - trackStatusColumnWidth
+	if textWidth < minTrackTextWidth {
+		textWidth = minTrackTextWidth
+	}
+
+	combined := trackText(title, desc)
+	displayText := truncateToWidth(combined, textWidth)
+	titlePart, descPart := splitTrackText(displayText, title)
+	paddingWidth := m.Width() - lipgloss.Width(trackNumberStyleToUse.Render(trackNumber)) - lipgloss.Width(displayText) - trackStatusColumnWidth
+	if paddingWidth < 0 {
+		paddingWidth = 0
+	}
+	padding := strings.Repeat(" ", paddingWidth)
 
 	str := fmt.Sprintf("%s%s%s%s%s",
 		trackNumberStyleToUse.Render(trackNumber),
@@ -198,6 +183,58 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 	)
 
 	fmt.Fprint(w, str)
+}
+
+const (
+	trackStatusColumnWidth = 15
+	minTrackTextWidth      = 10
+)
+
+func trackText(title, desc string) string {
+	if desc == "" {
+		return title
+	}
+	return fmt.Sprintf("%s %s", title, desc)
+}
+
+func splitTrackText(displayText, title string) (string, string) {
+	titleWidth := runewidth.StringWidth(title)
+	currentWidth := 0
+
+	for i, r := range displayText {
+		if currentWidth >= titleWidth && r == ' ' {
+			return displayText[:i+1], displayText[i+1:]
+		}
+
+		currentWidth += runewidth.RuneWidth(r)
+	}
+
+	return displayText, ""
+}
+
+func truncateToWidth(s string, width int) string {
+	if runewidth.StringWidth(s) <= width {
+		return s
+	}
+
+	dots := "..."
+	dotsWidth := runewidth.StringWidth(dots)
+	if width <= dotsWidth {
+		return strings.Repeat(".", width)
+	}
+
+	var b strings.Builder
+	currentWidth := 0
+	for _, r := range s {
+		runeWidth := runewidth.RuneWidth(r)
+		if currentWidth+runeWidth > width-dotsWidth {
+			break
+		}
+		b.WriteRune(r)
+		currentWidth += runeWidth
+	}
+	b.WriteString(dots)
+	return b.String()
 }
 
 func (t TrackListItem) statusLabel() string {

@@ -7,8 +7,8 @@ import (
 	"ya-music/ya"
 	"ya-music/ya/model"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type UiState int
@@ -17,16 +17,17 @@ const (
 	UiStateTokenInput UiState = iota
 	UiStateSelectSource
 	UiStateDownloading
+
+	minInputWidth         = 20
+	inputHorizontalChrome = 4
+	rootTopPadding        = 2
 )
 
 var (
 	redForeground     = lipgloss.NewStyle().Foreground(lipgloss.Color("#CC0000"))
-	whiteForeground   = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
 	greenForeground   = lipgloss.NewStyle().Foreground(lipgloss.Color("#006400"))
-	orangeForeground  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF8C00"))
 	grayForeground    = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
 	dimGrayForeground = lipgloss.NewStyle().Foreground(lipgloss.Color("#808080"))
-	spinnerForeground = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	boldStyle         = lipgloss.NewStyle().Bold(true)
 	boldRedStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
 	spinnerStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
@@ -43,6 +44,8 @@ type Model struct {
 	tokenModel    TokenModel
 	sourceModel   SourceModel
 	downloadModel DownloadModel
+	windowWidth   int
+	windowHeight  int
 }
 
 func (m Model) Init() tea.Cmd {
@@ -55,19 +58,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	utils.NewLogger("").Debug(fmt.Sprintf("Update: %T - %v", msg, msg))
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC {
+	case tea.WindowSizeMsg:
+		m.windowWidth = msg.Width
+		m.windowHeight = msg.Height
+		m.resizeToWindow()
+
+	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" {
 			return m.handleShutdown("ctrl_c")
 		}
 
 	case BackToURLMsg:
 		m.initState = UiStateSelectSource
 		m.downloadModel.Reset()
-		m.sourceModel.Reset()
-		return m, m.sourceModel.Init()
+		m.resizeToWindow()
+		return m, m.sourceModel.Reset()
 
 	case TokenOkMsg:
 		m.initState = UiStateSelectSource
+		m.resizeToWindow()
 		cmds = append(cmds, m.sourceModel.Init())
 
 	case SourceSubmitMsg:
@@ -86,6 +95,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.downloadModel.AddTracks(tracks)
+		m.resizeToWindow()
 
 		cmds = append(cmds, m.downloadModel.Init())
 
@@ -113,17 +123,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
+	var content string
+
 	switch m.initState {
 	case UiStateDownloading:
-		return "\n\n" + m.downloadModel.View()
+		content = "\n\n" + m.downloadModel.render()
 	case UiStateSelectSource:
-		return "\n\n" + marginLeftStyle.Render(m.sourceModel.View())
+		content = "\n\n" + marginLeftStyle.Render(m.sourceModel.render())
 	case UiStateTokenInput:
-		return "\n\n" + marginLeftStyle.Render(m.tokenModel.View())
+		content = "\n\n" + marginLeftStyle.Render(m.tokenModel.render())
 	}
 
-	return ""
+	view := tea.NewView(content)
+	view.AltScreen = true
+	return view
 }
 
 func StartUi(client *ya.Client, options ...ya.DownloadOptions) Model {
@@ -133,6 +147,29 @@ func StartUi(client *ya.Client, options ...ya.DownloadOptions) Model {
 		sourceModel:   NewSourceModel(client),
 		downloadModel: NewDownloadModel(client, downloadOptionsOrDefault(options)),
 	}
+}
+
+func (m *Model) resizeToWindow() {
+	if m.windowWidth <= 0 || m.windowHeight <= 0 {
+		return
+	}
+
+	contentHeight := m.windowHeight - rootTopPadding
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	m.tokenModel.Resize(m.windowWidth, contentHeight)
+	m.sourceModel.Resize(m.windowWidth, contentHeight)
+	m.downloadModel.Resize(m.windowWidth, contentHeight)
+}
+
+func responsiveWidth(windowWidth, horizontalChrome, minimum int) int {
+	width := windowWidth - horizontalChrome
+	if width < minimum {
+		return minimum
+	}
+	return width
 }
 
 func (m Model) handleShutdown(reason string) (tea.Model, tea.Cmd) {

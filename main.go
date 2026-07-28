@@ -12,7 +12,7 @@ import (
 	"ya-music/utils"
 	"ya-music/ya"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func main() {
@@ -52,7 +52,7 @@ func main() {
 
 	client := ya.NewClient(httpClient)
 	downloadOptions := ya.DownloadOptions{SkipCover: skipCover}
-	prog := tea.NewProgram(ui.StartUi(client, downloadOptions), tea.WithAltScreen())
+	prog := tea.NewProgram(ui.StartUi(client, downloadOptions))
 
 	go func() {
 		sig := <-sigCh

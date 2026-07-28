@@ -7,10 +7,31 @@ import (
 	"ya-music/ya"
 	"ya-music/ya/model"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
+
+func keyText(text string) tea.KeyPressMsg {
+	return tea.KeyPressMsg(tea.Key{Text: text})
+}
+
+func keyCode(code rune) tea.KeyPressMsg {
+	return tea.KeyPressMsg(tea.Key{Code: code})
+}
+
+func addReadyTracks(m *DownloadModel, count int) {
+	tracks := make([]model.Track, count)
+	for i := range tracks {
+		tracks[i] = model.Track{
+			ID:        model.FlexibleID(uuid.NewString()),
+			Title:     "Track",
+			Available: true,
+		}
+	}
+	m.AddTracks(tracks)
+}
 
 func TestReset(t *testing.T) {
 	m := NewDownloadModel(nil)
@@ -24,8 +45,8 @@ func TestReset(t *testing.T) {
 	m.selectedTrackInfo = "x"
 	m.isDownloading = true
 
-	m.trackList, _ = m.trackList.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	m.trackList, _ = m.trackList.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m.trackList, _ = m.trackList.Update(keyText("/"))
+	m.trackList, _ = m.trackList.Update(keyText("x"))
 	assert.NotEmpty(t, m.trackList.FilterValue())
 
 	m.Reset()
@@ -114,11 +135,11 @@ func TestToggleAudioFormat(t *testing.T) {
 	m := NewDownloadModel(nil)
 	m.focusedView = viewFormatFLAC
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := m.Update(keyCode(tea.KeyEnter))
 	assert.Equal(t, ya.AudioFormatFLAC, updated.downloadOptions.FormatOrDefault())
 
 	updated.focusedView = viewFormatMP3
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeySpace})
+	updated, _ = updated.Update(keyCode(tea.KeySpace))
 	assert.Equal(t, ya.AudioFormatMP3, updated.downloadOptions.FormatOrDefault())
 }
 
@@ -127,7 +148,7 @@ func TestToggleAudioFormatIsDisabledWhileDownloading(t *testing.T) {
 	m.focusedView = viewFormatFLAC
 	m.isDownloading = true
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := m.Update(keyCode(tea.KeyEnter))
 
 	assert.Equal(t, ya.AudioFormatMP3, updated.downloadOptions.FormatOrDefault())
 }
@@ -144,13 +165,13 @@ func TestArrowKeysMoveAcrossActionControls(t *testing.T) {
 	m := NewDownloadModel(nil)
 	m.focusedView = viewFormatMP3
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	updated, _ := m.Update(keyCode(tea.KeyRight))
 	assert.Equal(t, viewFormatFLAC, updated.focusedView)
 
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRight})
+	updated, _ = updated.Update(keyCode(tea.KeyRight))
 	assert.Equal(t, viewBackButton, updated.focusedView)
 
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	updated, _ = updated.Update(keyCode(tea.KeyLeft))
 	assert.Equal(t, viewFormatFLAC, updated.focusedView)
 }
 
@@ -158,18 +179,18 @@ func TestArrowKeysMoveBetweenActionRows(t *testing.T) {
 	m := NewDownloadModel(nil)
 	m.focusedView = viewFormatMP3
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := m.Update(keyCode(tea.KeyDown))
 	assert.Equal(t, viewBackButton, updated.focusedView)
 
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = updated.Update(keyCode(tea.KeyUp))
 	assert.Equal(t, viewFormatMP3, updated.focusedView)
 
 	updated.focusedView = viewFormatFLAC
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = updated.Update(keyCode(tea.KeyDown))
 	assert.Equal(t, viewDownloadButton, updated.focusedView)
 
 	updated.focusedView = viewQuitButton
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = updated.Update(keyCode(tea.KeyUp))
 	assert.Equal(t, viewFormatFLAC, updated.focusedView)
 }
 
@@ -178,7 +199,7 @@ func TestArrowDownFallsBackToQuitWhenOnlyQuitEnabled(t *testing.T) {
 	m.isDownloading = true
 	m.focusedView = viewFormatMP3
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := m.Update(keyCode(tea.KeyDown))
 	assert.Equal(t, viewQuitButton, updated.focusedView)
 }
 
@@ -186,11 +207,11 @@ func TestActionBarActivationUsesEnterAndSpace(t *testing.T) {
 	m := NewDownloadModel(nil)
 	m.focusedView = viewFormatFLAC
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	updated, _ := m.Update(keyCode(tea.KeySpace))
 	assert.Equal(t, ya.AudioFormatFLAC, updated.downloadOptions.FormatOrDefault())
 
 	updated.focusedView = viewFormatMP3
-	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = updated.Update(keyCode(tea.KeyEnter))
 	assert.Equal(t, ya.AudioFormatMP3, updated.downloadOptions.FormatOrDefault())
 }
 
@@ -199,10 +220,61 @@ func TestWindowResizeShrinksTrackListToAvailableHeight(t *testing.T) {
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
-	assert.Equal(t, 92, updated.trackList.Width())
+	assert.Equal(t, 95, updated.trackList.Width())
 	assert.Equal(t, 17, updated.trackList.Height())
-	assert.Equal(t, 92, updated.progress.Width)
-	assert.Equal(t, 92, updated.help.Width)
+	assert.Equal(t, 95, updated.progress.Width())
+}
+
+func TestWindowResizeKeepsRenderedDownloadWithinWindowHeight(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 40)
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	assert.LessOrEqual(t, lipgloss.Height(updated.render()), 30)
+}
+
+func TestWindowResizeRendersTrackListAcrossWindowWidth(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 40)
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	assert.Equal(t, 100, lipgloss.Width(updated.renderTrackList()))
+}
+
+func TestWindowResizeKeepsRoomForFocusedActionBar(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 40)
+	m.focusedView = viewDownloadButton
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	assert.LessOrEqual(t, lipgloss.Height(updated.render()), 30)
+}
+
+func TestActionBarDoesNotRenderHotkeyHelp(t *testing.T) {
+	m := NewDownloadModel(nil)
+
+	actionBar := renderActionBar(m)
+
+	assert.NotContains(t, actionBar, "next")
+	assert.NotContains(t, actionBar, "move horizontally")
+	assert.NotContains(t, actionBar, "activate")
+}
+
+func TestTabFocusDoesNotChangeTrackListHeight(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 40)
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	listHeight := updated.trackList.Height()
+
+	updated, _ = updated.Update(keyCode(tea.KeyTab))
+
+	assert.NotEqual(t, viewList, updated.focusedView)
+	assert.Equal(t, listHeight, updated.trackList.Height())
+	assert.LessOrEqual(t, lipgloss.Height(updated.render()), 30)
 }
 
 func TestWindowResizeKeepsMinimumTrackListHeight(t *testing.T) {
@@ -373,7 +445,7 @@ func TestQuitButtonCancelsActiveDownloads(t *testing.T) {
 	m.isDownloading = true
 	m.focusedView = viewQuitButton
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(keyCode(tea.KeyEnter))
 
 	assert.True(t, updated.shutdownRequested)
 	assert.False(t, updated.quitAfterCancel)
