@@ -10,7 +10,10 @@ import (
 	"github.com/bogem/id3v2/v2"
 )
 
-const yandexTrackOwnerIdentifier = "music.yandex.ru"
+const (
+	yandexTrackOwnerIdentifier        = "music.yandex.ru"
+	yandexSourceURLCommentDescription = "yandex-music-downloader:source-url"
+)
 
 func writeID3Tags(filename string, track model.Track, coverPath string) error {
 	tag, err := id3v2.Open(filename, id3v2.Options{Parse: true})
@@ -54,6 +57,17 @@ func writeID3Tags(filename string, track model.Track, coverPath string) error {
 		tag.AddUFIDFrame(id3v2.UFIDFrame{
 			OwnerIdentifier: yandexTrackOwnerIdentifier,
 			Identifier:      []byte(trackID),
+		})
+	}
+
+	if trackURL := yandexTrackURL(track); trackURL != "" {
+		// CommentFrame uniqueness is Language+Description, so this replaces only
+		// the application-owned source URL and leaves unrelated COMM frames intact.
+		tag.AddCommentFrame(id3v2.CommentFrame{
+			Encoding:    id3v2.EncodingUTF8,
+			Language:    "eng",
+			Description: yandexSourceURLCommentDescription,
+			Text:        trackURL,
 		})
 	}
 
