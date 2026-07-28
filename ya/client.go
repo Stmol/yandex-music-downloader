@@ -46,6 +46,16 @@ type losslessTrackDownloader interface {
 	DownloadAudio(reqCtx utils.RequestLogContext, info lossless.DownloadInfo) ([]byte, error)
 }
 
+type m4aTagger interface {
+	Write(path string, tags m4aTagInput) error
+}
+
+type defaultM4ATagger struct{}
+
+func (defaultM4ATagger) Write(path string, tags m4aTagInput) error {
+	return writeM4ATags(path, tags)
+}
+
 type trackDownloadFunc func(track model.Track, outputDir string, options DownloadOptions) (string, error)
 
 type YaClient interface {
@@ -65,6 +75,7 @@ type Client struct {
 	logger             *utils.DownloadLogger
 	losslessDownloader losslessTrackDownloader
 	mp3Downloader      trackDownloadFunc
+	m4aTagger          m4aTagger
 	userUID            int
 	username           string
 }
@@ -91,6 +102,13 @@ func (c *Client) Logger() *utils.DownloadLogger {
 	}
 
 	return c.logger
+}
+
+func (c *Client) m4aTags() m4aTagger {
+	if c == nil || c.m4aTagger == nil {
+		return defaultM4ATagger{}
+	}
+	return c.m4aTagger
 }
 
 func (c *Client) Cancel() {
@@ -514,11 +532,33 @@ func (c *Client) downloadTrackLossless(track model.Track, outputDir string, opti
 			return filename, fmt.Errorf("failed to write flac tags: %w", err)
 		}
 	case "flac-mp4":
-		c.logTrack(slog.LevelWarn, trackCtx, "lossless metadata skipped",
-			"stage", "lossless_tags",
-			"codec", info.Codec,
-			"filename", filename,
-		)
+		coverCh := c.startCoverDownload(track, filename, options)
+		cover := c.waitCoverDownload(trackCtx, coverCh)
+		if cover.filename != "" {
+			coverFilename = cover.filename
+			defer c.removeCoverFile(trackCtx, cover.filename)
+		}
+
+		coverMIME, coverData, _ := readM4ACoverData(cover.filename)
+		album := model.Album{}
+		if first := firstAlbum(track); first != nil {
+			album = *first
+		}
+		tags := m4aTagInputForTrack(track, album, coverMIME, coverData)
+		if err := c.m4aTags().Write(tempFilename, tags); err != nil {
+			c.logTrack(slog.LevelWarn, trackCtx, "M4A metadata skipped; keeping audio",
+				"stage", "m4a_tags",
+				"filename", filename,
+				"temp_filename", tempFilename,
+				"error", err,
+			)
+		} else {
+			c.logTrack(slog.LevelInfo, trackCtx, "M4A metadata written",
+				"stage", "m4a_tags",
+				"filename", filename,
+				"cover_filename", cover.filename,
+			)
+		}
 	default:
 		err := fmt.Errorf("%w: codec %q", lossless.ErrNoFLACDownloadInfo, info.Codec)
 		c.logTrackFailure(trackCtx, "lossless_download", err,
