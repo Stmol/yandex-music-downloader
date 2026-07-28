@@ -1,6 +1,7 @@
 package ya
 
 import (
+	"encoding/binary"
 	"errors"
 	"os"
 	"path/filepath"
@@ -154,6 +155,11 @@ func TestDownloadTrackWithOptionsWritesFLACWhenLosslessSucceeds(t *testing.T) {
 
 func TestDownloadTrackWithOptionsWritesFLACMP4AsM4A(t *testing.T) {
 	outputDir := t.TempDir()
+	fixture := copyFixture(t, "taggable-stco.m4a")
+	fixtureData, err := os.ReadFile(fixture)
+	require.NoError(t, err)
+	fixtureFTYP := readMP4FileTypeBox(t, fixture)
+
 	track := model.Track{
 		ID:        model.FlexibleID("11"),
 		Title:     "Song",
@@ -164,7 +170,7 @@ func TestDownloadTrackWithOptionsWritesFLACMP4AsM4A(t *testing.T) {
 	client.userUID = 77
 	client.losslessDownloader = &fakeLosslessDownloader{
 		info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac-mp4", Bitrate: 0},
-		data: []byte("mp4 container"),
+		data: fixtureData,
 	}
 	client.mp3Downloader = func(_ model.Track, _ string, _ DownloadOptions) (string, error) {
 		t.Fatal("mp3 fallback should not be called")
@@ -177,7 +183,8 @@ func TestDownloadTrackWithOptionsWritesFLACMP4AsM4A(t *testing.T) {
 	assert.Equal(t, buildTrackFilenameWithExtension(track, outputDir, ".m4a"), filename)
 	data, err := os.ReadFile(filename)
 	require.NoError(t, err)
-	assert.Equal(t, "mp4 container", string(data))
+	assert.Equal(t, fixtureFTYP, readMP4FileTypeBox(t, filename))
+	assert.NotEmpty(t, data)
 }
 
 func TestDownloadTrackWithOptionsDoesNotDownloadLosslessWhenTargetExists(t *testing.T) {
@@ -230,6 +237,33 @@ func TestTrackFilenameBaseFallsBackWhenArtistIsMissing(t *testing.T) {
 	}
 
 	assert.Equal(t, "Track Name", trackFilenameBase(track))
+}
+
+func copyFixture(t *testing.T, name string) string {
+	t.Helper()
+
+	sourcePath := filepath.Join("testdata", "m4a", name)
+	data, err := os.ReadFile(sourcePath)
+	require.NoError(t, err)
+
+	destinationPath := filepath.Join(t.TempDir(), name)
+	require.NoError(t, os.WriteFile(destinationPath, data, 0644))
+	return destinationPath
+}
+
+func readMP4FileTypeBox(t *testing.T, path string) []byte {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(data), 8)
+
+	size := int(binary.BigEndian.Uint32(data[:4]))
+	require.GreaterOrEqual(t, size, 8)
+	require.LessOrEqual(t, size, len(data))
+	require.Equal(t, "ftyp", string(data[4:8]))
+
+	return append([]byte(nil), data[:size]...)
 }
 
 func minimalFLACBytes() []byte {
