@@ -1,7 +1,9 @@
 package ya
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,6 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const malformedTruncatedTrackFixtureSHA256 = "66c48eafd91c768fa511b2a551ad0e8a32307f1719da010c746d1436cd15f975"
 
 type fakeLosslessDownloader struct {
 	info          lossless.DownloadInfo
@@ -187,6 +191,23 @@ func TestDownloadTrackWithOptionsWritesFLACMP4AsM4A(t *testing.T) {
 	assert.NotEmpty(t, data)
 }
 
+func TestMalformedM4AFixtureCopyPreservesChecksum(t *testing.T) {
+	sourcePath := filepath.Join("testdata", "m4a", "malformed-truncated-track.m4a")
+	sourceHashBefore := sha256File(t, sourcePath)
+	assert.Equal(t, malformedTruncatedTrackFixtureSHA256, sourceHashBefore)
+
+	copyPath := copyFixture(t, "malformed-truncated-track.m4a")
+	copyHashBefore := sha256File(t, copyPath)
+	assert.Equal(t, sourceHashBefore, copyHashBefore)
+
+	data, err := os.ReadFile(copyPath)
+	require.NoError(t, err)
+	assert.NotEmpty(t, data)
+
+	assert.Equal(t, copyHashBefore, sha256File(t, copyPath))
+	assert.Equal(t, sourceHashBefore, sha256File(t, sourcePath))
+}
+
 func TestDownloadTrackWithOptionsDoesNotDownloadLosslessWhenTargetExists(t *testing.T) {
 	outputDir := t.TempDir()
 	track := model.Track{
@@ -264,6 +285,16 @@ func readMP4FileTypeBox(t *testing.T, path string) []byte {
 	require.Equal(t, "ftyp", string(data[4:8]))
 
 	return append([]byte(nil), data[:size]...)
+}
+
+func sha256File(t *testing.T, path string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func minimalFLACBytes() []byte {
