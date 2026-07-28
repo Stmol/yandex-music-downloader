@@ -180,6 +180,39 @@ func TestWriteM4ATagsWritesFieldsAndCover(t *testing.T) {
 	assert.Equal(t, tags.CoverData, images[0].Data)
 }
 
+func TestWriteM4ATagsPreservesExistingCoverArt(t *testing.T) {
+	path := copyFixture(t, "taggable-stco.m4a")
+	existingCover := onePixelJPEG()
+	ourCover := onePixelPNG()
+
+	seed, err := mtag.Open(path)
+	require.NoError(t, err)
+	seed.AddImage(mtag.Picture{
+		MIME: "image/jpeg",
+		Type: mtag.PictureCoverFront,
+		Data: existingCover,
+	})
+	require.NoError(t, seed.Save())
+	require.NoError(t, seed.Close())
+
+	require.NoError(t, writeM4ATags(path, sampleM4ATagInput(ourCover)))
+
+	file := openTaggedM4A(t, path)
+	images := file.Images()
+	require.Len(t, images, 2)
+
+	gotData := make([][]byte, 0, len(images))
+	gotMIME := make([]string, 0, len(images))
+	for _, img := range images {
+		gotData = append(gotData, img.Data)
+		gotMIME = append(gotMIME, img.MIME)
+	}
+	assert.Contains(t, gotData, existingCover)
+	assert.Contains(t, gotData, ourCover)
+	assert.Contains(t, gotMIME, "image/jpeg")
+	assert.Contains(t, gotMIME, "image/png")
+}
+
 func TestWriteM4ATagsPreservesCO64(t *testing.T) {
 	path := copyFixture(t, "taggable-co64.m4a")
 	require.True(t, hasMP4Atom(t, path, "co64"))

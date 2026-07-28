@@ -133,7 +133,13 @@ func writeM4ATags(path string, tags m4aTagInput) error {
 		file.SetCustomValues(m4aSourceURLField, value)
 	}
 	if strings.TrimSpace(tags.CoverMIME) != "" && len(tags.CoverData) > 0 {
-		file.SetCoverArt(tags.CoverMIME, tags.CoverData)
+		// Append rather than SetCoverArt: MP4 SetCoverArt removes every
+		// existing covr atom, which would discard third-party cover art.
+		file.AddImage(mtag.Picture{
+			MIME: tags.CoverMIME,
+			Type: mtag.PictureCoverFront,
+			Data: tags.CoverData,
+		})
 	}
 
 	if err := file.Save(); err != nil {
