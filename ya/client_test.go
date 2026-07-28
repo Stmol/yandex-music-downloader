@@ -1,9 +1,16 @@
 package ya
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"ya-music/utils"
 	"ya-music/ya/lossless"
@@ -12,6 +19,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const malformedTruncatedTrackFixtureSHA256 = "66c48eafd91c768fa511b2a551ad0e8a32307f1719da010c746d1436cd15f975"
 
 type fakeLosslessDownloader struct {
 	info          lossless.DownloadInfo
@@ -154,6 +163,11 @@ func TestDownloadTrackWithOptionsWritesFLACWhenLosslessSucceeds(t *testing.T) {
 
 func TestDownloadTrackWithOptionsWritesFLACMP4AsM4A(t *testing.T) {
 	outputDir := t.TempDir()
+	fixture := copyFixture(t, "taggable-stco.m4a")
+	fixtureData, err := os.ReadFile(fixture)
+	require.NoError(t, err)
+	fixtureFTYP := readMP4FileTypeBox(t, fixture)
+
 	track := model.Track{
 		ID:        model.FlexibleID("11"),
 		Title:     "Song",
@@ -164,7 +178,7 @@ func TestDownloadTrackWithOptionsWritesFLACMP4AsM4A(t *testing.T) {
 	client.userUID = 77
 	client.losslessDownloader = &fakeLosslessDownloader{
 		info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac-mp4", Bitrate: 0},
-		data: []byte("mp4 container"),
+		data: fixtureData,
 	}
 	client.mp3Downloader = func(_ model.Track, _ string, _ DownloadOptions) (string, error) {
 		t.Fatal("mp3 fallback should not be called")
@@ -177,7 +191,209 @@ func TestDownloadTrackWithOptionsWritesFLACMP4AsM4A(t *testing.T) {
 	assert.Equal(t, buildTrackFilenameWithExtension(track, outputDir, ".m4a"), filename)
 	data, err := os.ReadFile(filename)
 	require.NoError(t, err)
-	assert.Equal(t, "mp4 container", string(data))
+	assert.Equal(t, fixtureFTYP, readMP4FileTypeBox(t, filename))
+	assert.NotEmpty(t, data)
+}
+
+func TestDownloadTrackWithOptionsWritesFLACMP4AsM4AWithMetadata(t *testing.T) {
+	outputDir := t.TempDir()
+	fixtureData, err := os.ReadFile(copyFixture(t, "taggable-stco.m4a"))
+	require.NoError(t, err)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(onePixelPNG())
+	}))
+	t.Cleanup(server.Close)
+
+	track := model.Track{
+		ID:        model.FlexibleID("11"),
+		Title:     "Song",
+		Available: true,
+		Artists:   []model.Artist{{Name: "Artist"}},
+		CoverURI:  server.URL + "/cover/%%",
+		Albums: []model.Album{{
+			ID:    model.FlexibleID("22"),
+			Title: "Album",
+			Year:  2024,
+		}},
+	}
+
+	client := NewClient(utils.NewHttpClient())
+	client.userUID = 77
+	client.losslessDownloader = &fakeLosslessDownloader{
+		info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac-mp4", Bitrate: 0},
+		data: fixtureData,
+	}
+	client.mp3Downloader = func(_ model.Track, _ string, _ DownloadOptions) (string, error) {
+		t.Fatal("mp3 fallback should not be called")
+		return "", nil
+	}
+
+	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
+
+	require.NoError(t, err)
+	file := openTaggedM4A(t, filename)
+	assert.Equal(t, "Song", file.Title())
+	images := file.Images()
+	require.Len(t, images, 1)
+	assert.Equal(t, "image/png", images[0].MIME)
+	assert.Equal(t, onePixelPNG(), images[0].Data)
+}
+
+type recordingM4ATagger struct {
+	err      error
+	paths    []string
+	calls    int
+	lastTags m4aTagInput
+}
+
+func (r *recordingM4ATagger) Write(path string, tags m4aTagInput) error {
+	r.calls++
+	r.paths = append(r.paths, path)
+	r.lastTags = tags
+	return r.err
+}
+
+func TestDownloadTrackWithOptionsKeepsM4AWhenTaggingFails(t *testing.T) {
+	outputDir := t.TempDir()
+	fixtureData, err := os.ReadFile(copyFixture(t, "taggable-stco.m4a"))
+	require.NoError(t, err)
+
+	var logs bytes.Buffer
+	httpClient := utils.NewHttpClientWithLogger(utils.NewDownloadLoggerForWriter(&logs))
+	client := NewClient(httpClient)
+	client.userUID = 77
+	tagger := &recordingM4ATagger{err: errors.New("tag boom")}
+	client.m4aTagger = tagger
+	client.losslessDownloader = &fakeLosslessDownloader{
+		info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac-mp4", Bitrate: 0},
+		data: fixtureData,
+	}
+	client.mp3Downloader = func(_ model.Track, _ string, _ DownloadOptions) (string, error) {
+		t.Fatal("mp3 fallback should not be called")
+		return "", nil
+	}
+
+	track := model.Track{
+		ID:        model.FlexibleID("11"),
+		Title:     "Song",
+		Available: true,
+		Artists:   []model.Artist{{Name: "Artist"}},
+	}
+	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
+
+	require.NoError(t, err)
+	assert.Equal(t, buildTrackFilenameWithExtension(track, outputDir, ".m4a"), filename)
+	data, err := os.ReadFile(filename)
+	require.NoError(t, err)
+	assert.Equal(t, fixtureData, data)
+	assert.Equal(t, 1, tagger.calls)
+	assert.Contains(t, logs.String(), "M4A metadata skipped; keeping audio")
+	assert.Contains(t, logs.String(), "tag boom")
+
+	entries, err := os.ReadDir(outputDir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		assert.False(t, strings.HasSuffix(entry.Name(), ".part"), "temporary file left behind: %s", entry.Name())
+	}
+}
+
+func TestDownloadTrackWithOptionsKeepsM4AWhenCoverFails(t *testing.T) {
+	outputDir := t.TempDir()
+	fixtureData, err := os.ReadFile(copyFixture(t, "taggable-stco.m4a"))
+	require.NoError(t, err)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(server.Close)
+
+	track := model.Track{
+		ID:        model.FlexibleID("11"),
+		Title:     "Song",
+		Available: true,
+		Artists:   []model.Artist{{Name: "Artist"}},
+		CoverURI:  server.URL + "/missing/%%",
+		Albums: []model.Album{{
+			ID:    model.FlexibleID("22"),
+			Title: "Album",
+		}},
+	}
+	client := NewClient(utils.NewHttpClient())
+	client.userUID = 77
+	client.losslessDownloader = &fakeLosslessDownloader{
+		info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac-mp4", Bitrate: 0},
+		data: fixtureData,
+	}
+	client.mp3Downloader = func(_ model.Track, _ string, _ DownloadOptions) (string, error) {
+		t.Fatal("mp3 fallback should not be called")
+		return "", nil
+	}
+
+	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
+
+	require.NoError(t, err)
+	file := openTaggedM4A(t, filename)
+	assert.Equal(t, "Song", file.Title())
+	assert.Equal(t, "Artist", file.Artist())
+	assert.Equal(t, "Album", file.Album())
+	assert.Empty(t, file.Images())
+}
+
+func TestDownloadTrackWithOptionsDoesNotTouchExistingFinalM4AOnTagFailure(t *testing.T) {
+	outputDir := t.TempDir()
+	fixtureData, err := os.ReadFile(copyFixture(t, "taggable-stco.m4a"))
+	require.NoError(t, err)
+
+	unrelated := filepath.Join(outputDir, "other-final.m4a")
+	require.NoError(t, os.WriteFile(unrelated, []byte("do-not-touch"), 0644))
+	unrelatedBefore := sha256File(t, unrelated)
+
+	tagger := &recordingM4ATagger{err: errors.New("tag boom")}
+	client := NewClient(nil)
+	client.userUID = 77
+	client.m4aTagger = tagger
+	client.losslessDownloader = &fakeLosslessDownloader{
+		info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac-mp4", Bitrate: 0},
+		data: fixtureData,
+	}
+	client.mp3Downloader = func(_ model.Track, _ string, _ DownloadOptions) (string, error) {
+		t.Fatal("mp3 fallback should not be called")
+		return "", nil
+	}
+
+	track := model.Track{
+		ID:        model.FlexibleID("11"),
+		Title:     "Song",
+		Available: true,
+		Artists:   []model.Artist{{Name: "Artist"}},
+	}
+	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
+
+	require.NoError(t, err)
+	require.Len(t, tagger.paths, 1)
+	assert.NotEqual(t, filename, tagger.paths[0])
+	assert.Contains(t, tagger.paths[0], ".part")
+	assert.Equal(t, unrelatedBefore, sha256File(t, unrelated))
+	assert.FileExists(t, filename)
+}
+
+func TestMalformedM4AFixtureCopyPreservesChecksum(t *testing.T) {
+	sourcePath := filepath.Join("testdata", "m4a", "malformed-truncated-track.m4a")
+	sourceHashBefore := sha256File(t, sourcePath)
+	assert.Equal(t, malformedTruncatedTrackFixtureSHA256, sourceHashBefore)
+
+	copyPath := copyFixture(t, "malformed-truncated-track.m4a")
+	copyHashBefore := sha256File(t, copyPath)
+	assert.Equal(t, sourceHashBefore, copyHashBefore)
+
+	data, err := os.ReadFile(copyPath)
+	require.NoError(t, err)
+	assert.NotEmpty(t, data)
+
+	assert.Equal(t, copyHashBefore, sha256File(t, copyPath))
+	assert.Equal(t, sourceHashBefore, sha256File(t, sourcePath))
 }
 
 func TestDownloadTrackWithOptionsDoesNotDownloadLosslessWhenTargetExists(t *testing.T) {
@@ -230,6 +446,43 @@ func TestTrackFilenameBaseFallsBackWhenArtistIsMissing(t *testing.T) {
 	}
 
 	assert.Equal(t, "Track Name", trackFilenameBase(track))
+}
+
+func copyFixture(t *testing.T, name string) string {
+	t.Helper()
+
+	sourcePath := filepath.Join("testdata", "m4a", name)
+	data, err := os.ReadFile(sourcePath)
+	require.NoError(t, err)
+
+	destinationPath := filepath.Join(t.TempDir(), name)
+	require.NoError(t, os.WriteFile(destinationPath, data, 0644))
+	return destinationPath
+}
+
+func readMP4FileTypeBox(t *testing.T, path string) []byte {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(data), 8)
+
+	size := int(binary.BigEndian.Uint32(data[:4]))
+	require.GreaterOrEqual(t, size, 8)
+	require.LessOrEqual(t, size, len(data))
+	require.Equal(t, "ftyp", string(data[4:8]))
+
+	return append([]byte(nil), data[:size]...)
+}
+
+func sha256File(t *testing.T, path string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func minimalFLACBytes() []byte {

@@ -114,6 +114,90 @@ func TestWriteID3TagsIgnoresMissingCover(t *testing.T) {
 	require.NoError(t, writeID3Tags(mp3Path, track, filepath.Join(t.TempDir(), "missing.jpg")))
 }
 
+func TestWriteID3TagsPreservesUnrelatedCommentsAndUpdatesSource(t *testing.T) {
+	mp3Path := filepath.Join(t.TempDir(), "track.mp3")
+	require.NoError(t, os.WriteFile(mp3Path, []byte("audio payload"), 0644))
+
+	tag, err := id3v2.Open(mp3Path, id3v2.Options{Parse: true})
+	require.NoError(t, err)
+	tag.SetVersion(4)
+	tag.SetDefaultEncoding(id3v2.EncodingUTF8)
+	tag.AddCommentFrame(id3v2.CommentFrame{
+		Encoding:    id3v2.EncodingUTF8,
+		Language:    "eng",
+		Description: "user-note",
+		Text:        "keep me",
+	})
+	tag.AddCommentFrame(id3v2.CommentFrame{
+		Encoding:    id3v2.EncodingUTF8,
+		Language:    "eng",
+		Description: "podcast",
+		Text:        "episode notes",
+	})
+	tag.AddCommentFrame(id3v2.CommentFrame{
+		Encoding:    id3v2.EncodingUTF8,
+		Language:    "eng",
+		Description: yandexSourceURLCommentDescription,
+		Text:        "https://music.yandex.ru/track/old",
+	})
+	require.NoError(t, tag.Save())
+	require.NoError(t, tag.Close())
+
+	track := model.Track{
+		ID:    model.FlexibleID("123"),
+		Title: "Song",
+		Albums: []model.Album{{
+			ID: model.FlexibleID("456"),
+		}},
+	}
+	require.NoError(t, writeID3Tags(mp3Path, track, ""))
+
+	comments := readID3Comments(t, mp3Path)
+	assert.Equal(t, map[string]string{
+		"user-note":                       "keep me",
+		"podcast":                         "episode notes",
+		yandexSourceURLCommentDescription: "https://music.yandex.ru/album/456/track/123",
+	}, comments)
+}
+
+func TestWriteID3TagsSourceCommentIsIdempotent(t *testing.T) {
+	mp3Path := filepath.Join(t.TempDir(), "track.mp3")
+	require.NoError(t, os.WriteFile(mp3Path, []byte("audio payload"), 0644))
+
+	track := model.Track{
+		ID:    model.FlexibleID("123"),
+		Title: "Song",
+		Albums: []model.Album{{
+			ID: model.FlexibleID("456"),
+		}},
+	}
+
+	require.NoError(t, writeID3Tags(mp3Path, track, ""))
+	require.NoError(t, writeID3Tags(mp3Path, track, ""))
+
+	comments := readID3Comments(t, mp3Path)
+	require.Len(t, comments, 1)
+	assert.Equal(t, "https://music.yandex.ru/album/456/track/123", comments[yandexSourceURLCommentDescription])
+}
+
+func readID3Comments(t *testing.T, mp3Path string) map[string]string {
+	t.Helper()
+
+	tag, err := id3v2.Open(mp3Path, id3v2.Options{Parse: true})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, tag.Close())
+	})
+
+	comments := make(map[string]string)
+	for _, frame := range tag.GetFrames(tag.CommonID("Comments")) {
+		comment, ok := frame.(id3v2.CommentFrame)
+		require.True(t, ok)
+		comments[comment.Description] = comment.Text
+	}
+	return comments
+}
+
 func TestWriteID3TagsReturnsErrorForMissingMP3(t *testing.T) {
 	err := writeID3Tags(filepath.Join(t.TempDir(), "missing.mp3"), model.Track{Title: "Song"}, "")
 

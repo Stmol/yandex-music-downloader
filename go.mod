@@ -32,6 +32,7 @@ require (
 	github.com/go-flac/go-flac v1.0.0
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.10.0
+	github.com/tommyo123/mtag v1.0.2
 )
 
 require (
