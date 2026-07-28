@@ -180,6 +180,66 @@ func TestWriteM4ATagsWritesFieldsAndCover(t *testing.T) {
 	assert.Equal(t, tags.CoverData, images[0].Data)
 }
 
+func TestWriteM4ATagsCreatesMissingMetadataTree(t *testing.T) {
+	path := copyFixture(t, "taggable-no-ilst-stco.m4a")
+	beforeMdat := mdatPayload(t, path)
+	tags := sampleM4ATagInput(onePixelPNG())
+
+	require.False(t, hasMP4Atom(t, path, "ilst"))
+	require.NoError(t, writeM4ATags(path, tags))
+
+	assertM4ATags(t, path, tags)
+	assertM4AMetadataTree(t, path)
+	assert.Equal(t, beforeMdat, mdatPayload(t, path))
+}
+
+func TestWriteM4ATagsCreatesMissingMetadataTreeWithCO64(t *testing.T) {
+	path := copyFixture(t, "taggable-no-ilst-co64.m4a")
+	beforeMdat := mdatPayload(t, path)
+	tags := sampleM4ATagInput(onePixelPNG())
+
+	require.False(t, hasMP4Atom(t, path, "ilst"))
+	require.True(t, hasMP4Atom(t, path, "co64"))
+	require.NoError(t, writeM4ATags(path, tags))
+
+	assertM4ATags(t, path, tags)
+	assertM4AMetadataTree(t, path)
+	assert.True(t, hasMP4Atom(t, path, "co64"))
+	assert.Equal(t, beforeMdat, mdatPayload(t, path))
+
+	file := openTaggedM4A(t, path)
+	audio := file.AudioProperties()
+	assert.NotEmpty(t, audio.Codec)
+	assert.Positive(t, audio.SampleRate)
+	assert.Positive(t, audio.Channels)
+}
+
+func TestWriteM4ATagsPatchesOffsetsWhenMoovPrecedesMdat(t *testing.T) {
+	path := copyFixture(t, "taggable-no-ilst-stco-moov-before-mdat.m4a")
+	beforeMdat := mdatPayload(t, path)
+	beforeOffsets := readMP4ChunkOffsetLayout(t, path)
+	tags := sampleM4ATagInput(nil)
+
+	require.NoError(t, writeM4ATags(path, tags))
+	assertM4ATags(t, path, tags)
+	assert.Equal(t, beforeMdat, mdatPayload(t, path))
+	assertMP4ChunkOffsetsRemainRelative(t, beforeOffsets, readMP4ChunkOffsetLayout(t, path))
+}
+
+func TestWriteM4ATagsPatchesCO64OffsetsWhenMoovPrecedesMdat(t *testing.T) {
+	path := copyFixture(t, "taggable-no-ilst-co64-moov-before-mdat.m4a")
+	beforeMdat := mdatPayload(t, path)
+	beforeOffsets := readMP4ChunkOffsetLayout(t, path)
+	tags := sampleM4ATagInput(nil)
+
+	require.Len(t, beforeOffsets.offsets, 1)
+	assert.Equal(t, "co64", beforeOffsets.offsets[0].atomType)
+	require.NoError(t, writeM4ATags(path, tags))
+	assertM4ATags(t, path, tags)
+	assert.Equal(t, beforeMdat, mdatPayload(t, path))
+	assertMP4ChunkOffsetsRemainRelative(t, beforeOffsets, readMP4ChunkOffsetLayout(t, path))
+}
+
 func TestWriteM4ATagsPreservesExistingCoverArt(t *testing.T) {
 	path := copyFixture(t, "taggable-stco.m4a")
 	existingCover := onePixelJPEG()
@@ -242,6 +302,125 @@ func TestWriteM4ATagsRejectsMalformedInputWithoutMutation(t *testing.T) {
 	assert.Equal(t, before, sha256File(t, path))
 }
 
+func TestEnsureM4AMetadataTreeRejectsMalformedInputWithoutMutation(t *testing.T) {
+	path := copyFixture(t, "malformed-truncated-track.m4a")
+	before := sha256File(t, path)
+
+	err := ensureM4AMetadataTree(path)
+
+	require.Error(t, err)
+	assert.Equal(t, before, sha256File(t, path))
+}
+
+func TestEnsureM4AMetadataTreeRejectsMixedMdatLayoutWithoutMutation(t *testing.T) {
+	path := copyFixture(t, "taggable-no-ilst-stco.m4a")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	data = append(data, mustBuildM4AAtom(t, "mdat", []byte{0})...)
+	require.NoError(t, os.WriteFile(path, data, 0o644))
+	before := sha256File(t, path)
+
+	err = ensureM4AMetadataTree(path)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mdat atoms both before and after moov")
+	assert.Equal(t, before, sha256File(t, path))
+}
+
+func TestBootstrapM4AMetadataTreeAddsMetaAfterExistingUDTAChildren(t *testing.T) {
+	chpl := mustBuildM4AAtom(t, "chpl", []byte{1, 2, 3})
+	free := mustBuildM4AAtom(t, "free", []byte{4, 5})
+	udta := mustBuildM4AAtom(t, "udta", append(chpl, free...))
+	trak := mustBuildM4AAtom(t, "trak", []byte{6, 7})
+
+	got, changed, err := bootstrapM4AMetadataTree(append(trak, udta...))
+	require.NoError(t, err)
+	require.True(t, changed)
+	assert.Equal(t, []string{"trak", "udta"}, directM4AAtomTypes(t, got))
+
+	gotUDTA := directM4AChildBody(t, got, "udta")
+	assert.Equal(t, []string{"chpl", "free", "meta"}, directM4AAtomTypes(t, gotUDTA))
+	assert.Equal(t, chpl, directM4AChildAtom(t, gotUDTA, "chpl"))
+	assert.Equal(t, free, directM4AChildAtom(t, gotUDTA, "free"))
+}
+
+func TestBootstrapM4AMetadataTreeAddsILSTAfterExistingMetaChildren(t *testing.T) {
+	hdlr := mustBuildM4AAtom(t, "hdlr", []byte{0, 0, 0, 0, 0, 0, 0, 0, 'm', 'd', 'i', 'r', 'a', 'p', 'p', 'l', 0, 0, 0, 0, 0, 0, 0, 0, 0})
+	freeInMeta := mustBuildM4AAtom(t, "free", []byte{1, 2})
+	meta := mustBuildM4AAtom(t, "meta", append([]byte{0, 0, 0, 0}, append(hdlr, freeInMeta...)...))
+	chpl := mustBuildM4AAtom(t, "chpl", []byte{3})
+	freeAfterMeta := mustBuildM4AAtom(t, "free", []byte{4})
+	udta := mustBuildM4AAtom(t, "udta", append(chpl, append(meta, freeAfterMeta...)...))
+
+	got, changed, err := bootstrapM4AMetadataTree(udta)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	gotUDTA := directM4AChildBody(t, got, "udta")
+	assert.Equal(t, []string{"chpl", "meta", "free"}, directM4AAtomTypes(t, gotUDTA))
+	assert.Equal(t, chpl, directM4AChildAtom(t, gotUDTA, "chpl"))
+	assert.Equal(t, freeAfterMeta, directM4AChildAtom(t, gotUDTA, "free"))
+
+	gotMeta := directM4AChildBody(t, gotUDTA, "meta")
+	require.GreaterOrEqual(t, len(gotMeta), 4)
+	assert.Equal(t, []string{"hdlr", "free", "ilst"}, directM4AAtomTypes(t, gotMeta[4:]))
+	assert.Equal(t, hdlr, directM4AChildAtom(t, gotMeta[4:], "hdlr"))
+	assert.Equal(t, freeInMeta, directM4AChildAtom(t, gotMeta[4:], "free"))
+}
+
+func TestBootstrapM4AMetadataTreeNormalizesTerminalAtomBeforeAppendingSibling(t *testing.T) {
+	tests := []struct {
+		name          string
+		moovBody      []byte
+		childBody     func(t *testing.T, moovBody []byte) []byte
+		expectedTypes []string
+		terminalType  string
+	}{
+		{
+			name:          "moov",
+			moovBody:      terminalM4AAtom("free", []byte{1}),
+			childBody:     func(_ *testing.T, body []byte) []byte { return body },
+			expectedTypes: []string{"free", "udta"},
+			terminalType:  "free",
+		},
+		{
+			name:     "udta",
+			moovBody: mustBuildM4AAtom(t, "udta", terminalM4AAtom("free", []byte{2})),
+			childBody: func(t *testing.T, body []byte) []byte {
+				return directM4AChildBody(t, body, "udta")
+			},
+			expectedTypes: []string{"free", "meta"},
+			terminalType:  "free",
+		},
+		{
+			name:     "meta",
+			moovBody: mustBuildM4AAtom(t, "udta", mustBuildM4AAtom(t, "meta", append([]byte{0, 0, 0, 0}, terminalM4AAtom("free", []byte{3})...))),
+			childBody: func(t *testing.T, body []byte) []byte {
+				udta := directM4AChildBody(t, body, "udta")
+				meta := directM4AChildBody(t, udta, "meta")
+				require.GreaterOrEqual(t, len(meta), 4)
+				return meta[4:]
+			},
+			expectedTypes: []string{"free", "ilst"},
+			terminalType:  "free",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, changed, err := bootstrapM4AMetadataTree(tt.moovBody)
+			require.NoError(t, err)
+			require.True(t, changed)
+
+			body := tt.childBody(t, got)
+			assert.Equal(t, tt.expectedTypes, directM4AAtomTypes(t, body))
+			terminal := directM4AChildAtom(t, body, tt.terminalType)
+			require.Len(t, terminal, 9)
+			assert.NotZero(t, binary.BigEndian.Uint32(terminal[:4]))
+		})
+	}
+}
+
 func TestWriteM4ATagsRejectsOversizeByConfiguredLimit(t *testing.T) {
 	path := copyFixture(t, "taggable-stco.m4a")
 	before := sha256File(t, path)
@@ -286,6 +465,268 @@ func openTaggedM4A(t *testing.T, path string) *mtag.File {
 		require.NoError(t, file.Close())
 	})
 	return file
+}
+
+func assertM4ATags(t *testing.T, path string, tags m4aTagInput) {
+	t.Helper()
+
+	file := openTaggedM4A(t, path)
+	assert.Equal(t, mtag.ContainerMP4, file.Container())
+	assert.Equal(t, tags.Title, file.Title())
+	assert.Equal(t, tags.Artist, file.Artist())
+	assert.Equal(t, tags.Album, file.Album())
+	assert.Equal(t, tags.AlbumArtist, file.AlbumArtist())
+	assert.Equal(t, tags.Genre, file.Genre())
+	assert.Equal(t, tags.Year, file.Year())
+	assert.Equal(t, tags.Track, file.Track())
+	assert.Equal(t, tags.TrackTotal, file.TrackTotal())
+	assert.Equal(t, tags.Disc, file.Disc())
+	assert.Equal(t, tags.DiscTotal, file.DiscTotal())
+	assert.Equal(t, tags.SourceURL, file.CustomValue(m4aSourceURLField))
+
+	if len(tags.CoverData) == 0 {
+		return
+	}
+	images := file.Images()
+	require.Len(t, images, 1)
+	assert.Equal(t, tags.CoverMIME, images[0].MIME)
+	assert.Equal(t, tags.CoverData, images[0].Data)
+}
+
+func assertM4AMetadataTree(t *testing.T, path string) {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	moov, ok, err := findDirectMP4Atom(data, "moov")
+	require.NoError(t, err)
+	require.True(t, ok)
+	udta, ok, err := findDirectMP4Atom(data[moov.start+moov.headerSize:moov.end], "udta")
+	require.NoError(t, err)
+	require.True(t, ok)
+	meta, ok, err := findDirectMP4Atom(data[moov.start+moov.headerSize+udta.start+udta.headerSize:moov.start+moov.headerSize+udta.end], "meta")
+	require.NoError(t, err)
+	require.True(t, ok)
+	metaStart := moov.start + moov.headerSize + udta.start + udta.headerSize + meta.start + meta.headerSize
+	metaEnd := moov.start + moov.headerSize + udta.start + udta.headerSize + meta.end
+	require.GreaterOrEqual(t, metaEnd-metaStart, 4)
+	hdlr, ok, err := findDirectMP4Atom(data[metaStart+4:metaEnd], "hdlr")
+	require.NoError(t, err)
+	require.True(t, ok)
+	hdlrStart := metaStart + 4 + hdlr.start + hdlr.headerSize
+	require.GreaterOrEqual(t, metaStart+4+hdlr.end-hdlrStart, 16)
+	assert.Equal(t, "mdir", string(data[hdlrStart+8:hdlrStart+12]))
+	assert.Equal(t, "appl", string(data[hdlrStart+12:hdlrStart+16]))
+	_, ok, err = findDirectMP4Atom(data[metaStart+4:metaEnd], "ilst")
+	require.NoError(t, err)
+	require.True(t, ok)
+}
+
+func mdatPayload(t *testing.T, path string) []byte {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	mdat, ok, err := findDirectMP4Atom(data, "mdat")
+	require.NoError(t, err)
+	require.True(t, ok)
+	return append([]byte(nil), data[mdat.start+mdat.headerSize:mdat.end]...)
+}
+
+func findMP4AtomFromFile(path string, target string) (mp4Atom, bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return mp4Atom{}, false, err
+	}
+	return findDirectMP4Atom(data, target)
+}
+
+func findDirectMP4Atom(data []byte, target string) (mp4Atom, bool, error) {
+	for offset := 0; offset < len(data); {
+		atom, err := parseMP4Atom(data, offset)
+		if err != nil {
+			return mp4Atom{}, false, err
+		}
+		if atom.typ == target {
+			return atom, true, nil
+		}
+		offset = atom.end
+	}
+	return mp4Atom{}, false, nil
+}
+
+func firstMP4ChunkOffset(t *testing.T, path string) uint64 {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	stco, ok, err := findMP4Atom(data, "", "stco")
+	require.NoError(t, err)
+	if ok {
+		payload := data[stco.start+stco.headerSize : stco.end]
+		require.GreaterOrEqual(t, len(payload), 12)
+		return uint64(binary.BigEndian.Uint32(payload[8:12]))
+	}
+	co64, ok, err := findMP4Atom(data, "", "co64")
+	require.NoError(t, err)
+	require.True(t, ok)
+	payload := data[co64.start+co64.headerSize : co64.end]
+	require.GreaterOrEqual(t, len(payload), 16)
+	return binary.BigEndian.Uint64(payload[8:16])
+}
+
+type mp4ChunkOffset struct {
+	atomType string
+	value    uint64
+}
+
+type mp4ChunkOffsetLayout struct {
+	mdatPayloadStart uint64
+	mdatEnd          uint64
+	offsets          []mp4ChunkOffset
+}
+
+func readMP4ChunkOffsetLayout(t *testing.T, path string) mp4ChunkOffsetLayout {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	mdat, ok, err := findDirectMP4Atom(data, "mdat")
+	require.NoError(t, err)
+	require.True(t, ok)
+	offsets, err := collectMP4ChunkOffsets(data, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, offsets)
+	return mp4ChunkOffsetLayout{
+		mdatPayloadStart: uint64(mdat.start + mdat.headerSize),
+		mdatEnd:          uint64(mdat.end),
+		offsets:          offsets,
+	}
+}
+
+func assertMP4ChunkOffsetsRemainRelative(t *testing.T, before, after mp4ChunkOffsetLayout) {
+	t.Helper()
+
+	require.Len(t, after.offsets, len(before.offsets))
+	for i, beforeOffset := range before.offsets {
+		afterOffset := after.offsets[i]
+		assert.Equal(t, beforeOffset.atomType, afterOffset.atomType)
+		assert.Equal(t, beforeOffset.value-before.mdatPayloadStart, afterOffset.value-after.mdatPayloadStart)
+		assert.GreaterOrEqual(t, afterOffset.value, after.mdatPayloadStart)
+		assert.Less(t, afterOffset.value, after.mdatEnd)
+	}
+}
+
+func collectMP4ChunkOffsets(data []byte, parentType string) ([]mp4ChunkOffset, error) {
+	var offsets []mp4ChunkOffset
+	for offset := 0; offset < len(data); {
+		atom, err := parseMP4Atom(data, offset)
+		if err != nil {
+			return nil, err
+		}
+		payload := data[offset+atom.headerSize : atom.end]
+		switch atom.typ {
+		case "stco":
+			entries, err := parseMP4ChunkOffsetEntries(payload, 4)
+			if err != nil {
+				return nil, err
+			}
+			for _, entry := range entries {
+				offsets = append(offsets, mp4ChunkOffset{atomType: "stco", value: entry})
+			}
+		case "co64":
+			entries, err := parseMP4ChunkOffsetEntries(payload, 8)
+			if err != nil {
+				return nil, err
+			}
+			for _, entry := range entries {
+				offsets = append(offsets, mp4ChunkOffset{atomType: "co64", value: entry})
+			}
+		default:
+			if isMP4ContainerAtom(parentType, atom.typ) {
+				prefixLen := 0
+				if atom.typ == "meta" {
+					if len(payload) < 4 {
+						return nil, errors.New("meta atom payload too short")
+					}
+					prefixLen = 4
+				}
+				nested, err := collectMP4ChunkOffsets(payload[prefixLen:], atom.typ)
+				if err != nil {
+					return nil, err
+				}
+				offsets = append(offsets, nested...)
+			}
+		}
+		offset = atom.end
+	}
+	return offsets, nil
+}
+
+func parseMP4ChunkOffsetEntries(payload []byte, width int) ([]uint64, error) {
+	if len(payload) < 8 {
+		return nil, errors.New("chunk offset atom payload too short")
+	}
+	count := int(binary.BigEndian.Uint32(payload[4:8]))
+	if count > (len(payload)-8)/width || len(payload) != 8+count*width {
+		return nil, errors.New("chunk offset atom payload length mismatch")
+	}
+	entries := make([]uint64, count)
+	for i := range entries {
+		start := 8 + i*width
+		if width == 4 {
+			entries[i] = uint64(binary.BigEndian.Uint32(payload[start : start+4]))
+		} else {
+			entries[i] = binary.BigEndian.Uint64(payload[start : start+8])
+		}
+	}
+	return entries, nil
+}
+
+func mustBuildM4AAtom(t *testing.T, typ string, payload []byte) []byte {
+	t.Helper()
+
+	atom, err := buildMP4Atom(typ, payload)
+	require.NoError(t, err)
+	return atom
+}
+
+func terminalM4AAtom(typ string, payload []byte) []byte {
+	atom := make([]byte, 8+len(payload))
+	copy(atom[4:8], typ)
+	copy(atom[8:], payload)
+	return atom
+}
+
+func directM4AAtomTypes(t *testing.T, body []byte) []string {
+	t.Helper()
+
+	var types []string
+	for offset := 0; offset < len(body); {
+		atom, err := parseM4AAtom(body, offset)
+		require.NoError(t, err)
+		types = append(types, atom.typ)
+		offset = atom.end
+	}
+	return types
+}
+
+func directM4AChildBody(t *testing.T, body []byte, typ string) []byte {
+	t.Helper()
+
+	atom, ok, err := findMP4ChildAtom(body, typ)
+	require.NoError(t, err)
+	require.True(t, ok)
+	return append([]byte(nil), body[atom.offset+atom.headerSize:atom.end]...)
+}
+
+func directM4AChildAtom(t *testing.T, body []byte, typ string) []byte {
+	t.Helper()
+
+	atom, ok, err := findMP4ChildAtom(body, typ)
+	require.NoError(t, err)
+	require.True(t, ok)
+	return append([]byte(nil), body[atom.offset:atom.end]...)
 }
 
 func hasMP4Atom(t *testing.T, path string, target string) bool {

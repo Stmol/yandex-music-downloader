@@ -109,7 +109,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 -   If you stop an active queue, interrupted tracks are returned to `Ready` so you can restart the download cleanly
 -   If needed, you can relaunch the app with `--timeout <seconds>` to limit how long a single file download may take
 -   By default, each MP3, FLAC, or M4A file is tagged with title, artist, album metadata, Yandex track URL/source metadata, and embedded JPEG/PNG cover art when available
--   M4A tagging covers native MP4/M4A containers only; damaged M4A files are not repaired. If optional M4A metadata writing fails, the audio file is still saved and the CLI logs a warning
+-   M4A tagging covers native MP4/M4A containers only. The downloader creates the required M4A metadata structure even when Yandex Music returns a valid file without initial tags; damaged M4A files are not repaired. If optional M4A metadata writing fails, the audio file is still saved and the CLI logs a warning
 -   If cover downloads are slow or expensive, relaunch with `--skip-cover=true`; text tags will still be written
 
 ![downloading](assets/img_download_in_progress.png)

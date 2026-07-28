@@ -24,7 +24,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) != 3 {
-		return fmt.Errorf("usage: %s <co64|truncate-trkn> <input> <output>", os.Args[0])
+		return fmt.Errorf("usage: %s <co64|strip-metadata|move-moov-before-mdat|truncate-trkn> <input> <output>", os.Args[0])
 	}
 
 	command := args[0]
@@ -39,6 +39,10 @@ func run(args []string) error {
 	switch command {
 	case "co64":
 		data, err = rewriteChunkOffsetsAsCO64(data)
+	case "strip-metadata":
+		data, err = stripMetadataTree(data)
+	case "move-moov-before-mdat":
+		data, err = moveMoovBeforeMdat(data)
 	case "truncate-trkn":
 		data, err = truncateTrackAtom(data)
 	default:
@@ -52,6 +56,66 @@ func run(args []string) error {
 		return fmt.Errorf("write output: %w", err)
 	}
 	return nil
+}
+
+func stripMetadataTree(data []byte) ([]byte, error) {
+	moov, ok, err := findTopLevelAtom(data, "moov")
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errors.New("moov atom not found")
+	}
+
+	moovBody := data[moov.start+moov.headerSize : moov.end]
+	udta, ok, err := findDirectChildAtom(moovBody, "udta")
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return append([]byte(nil), data...), nil
+	}
+
+	newMoovBody := append([]byte{}, moovBody[:udta.start]...)
+	newMoovBody = append(newMoovBody, moovBody[udta.end:]...)
+	newMoov := buildAtom("moov", newMoovBody)
+	result := make([]byte, 0, len(data)-moov.size+len(newMoov))
+	result = append(result, data[:moov.start]...)
+	result = append(result, newMoov...)
+	result = append(result, data[moov.end:]...)
+	return result, nil
+}
+
+func moveMoovBeforeMdat(data []byte) ([]byte, error) {
+	moov, ok, err := findTopLevelAtom(data, "moov")
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errors.New("moov atom not found")
+	}
+	mdat, ok, err := findTopLevelAtom(data, "mdat")
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errors.New("mdat atom not found")
+	}
+	if moov.start < mdat.start {
+		return nil, errors.New("moov already precedes mdat")
+	}
+
+	moovBody := append([]byte(nil), data[moov.start+moov.headerSize:moov.end]...)
+	// Moving moov immediately before mdat shifts mdat by the complete moov
+	// atom size, so every media chunk offset must move by that amount too.
+	patchSampleOffsets(moovBody, int64(moov.size))
+	patchedMoov := buildAtom("moov", moovBody)
+	result := make([]byte, 0, len(data))
+	result = append(result, data[:mdat.start]...)
+	result = append(result, patchedMoov...)
+	result = append(result, data[mdat.start:moov.start]...)
+	result = append(result, data[moov.end:]...)
+	return result, nil
 }
 
 func rewriteChunkOffsetsAsCO64(data []byte) ([]byte, error) {
@@ -178,6 +242,34 @@ func findAtom(data []byte, parentType string, targetType string) (atom, bool, er
 	return findAtomFrom(data, 0, parentType, targetType)
 }
 
+func findTopLevelAtom(data []byte, targetType string) (atom, bool, error) {
+	for offset := 0; offset < len(data); {
+		current, err := parseAtom(data, offset)
+		if err != nil {
+			return atom{}, false, err
+		}
+		if current.typ == targetType {
+			return current, true, nil
+		}
+		offset = current.end
+	}
+	return atom{}, false, nil
+}
+
+func findDirectChildAtom(data []byte, targetType string) (atom, bool, error) {
+	for offset := 0; offset < len(data); {
+		current, err := parseAtom(data, offset)
+		if err != nil {
+			return atom{}, false, err
+		}
+		if current.typ == targetType {
+			return current, true, nil
+		}
+		offset = current.end
+	}
+	return atom{}, false, nil
+}
+
 func findAtomFrom(data []byte, baseOffset int, parentType string, targetType string) (atom, bool, error) {
 	for offset := 0; offset < len(data); {
 		current, err := parseAtom(data, offset)
@@ -263,6 +355,37 @@ func buildAtom(typ string, payload []byte) []byte {
 	copy(out[4:8], []byte(typ))
 	copy(out[8:], payload)
 	return out
+}
+
+func patchSampleOffsets(body []byte, delta int64) {
+	for offset := 0; offset < len(body); {
+		current, err := parseAtom(body, offset)
+		if err != nil {
+			return
+		}
+		payload := body[offset+current.headerSize : current.end]
+		switch current.typ {
+		case "stco":
+			if len(payload) >= 8 {
+				count := int(binary.BigEndian.Uint32(payload[4:8]))
+				for i := 0; i < count && 12+i*4 <= len(payload); i++ {
+					value := binary.BigEndian.Uint32(payload[8+i*4 : 12+i*4])
+					binary.BigEndian.PutUint32(payload[8+i*4:12+i*4], uint32(int64(value)+delta))
+				}
+			}
+		case "co64":
+			if len(payload) >= 8 {
+				count := int(binary.BigEndian.Uint32(payload[4:8]))
+				for i := 0; i < count && 16+i*8 <= len(payload); i++ {
+					value := binary.BigEndian.Uint64(payload[8+i*8 : 16+i*8])
+					binary.BigEndian.PutUint64(payload[8+i*8:16+i*8], uint64(int64(value)+delta))
+				}
+			}
+		case "moov", "trak", "mdia", "minf", "stbl", "edts", "udta":
+			patchSampleOffsets(payload, delta)
+		}
+		offset = current.end
+	}
 }
 
 func isContainer(parentType string, typ string) bool {

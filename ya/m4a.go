@@ -97,13 +97,25 @@ func writeM4ATags(path string, tags m4aTagInput) error {
 	if err != nil {
 		return fmt.Errorf("open M4A metadata: %w", err)
 	}
+
+	if file.Container() != mtag.ContainerMP4 {
+		_ = file.Close()
+		return fmt.Errorf("unsupported M4A container: %s", file.Container())
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close validated M4A metadata: %w", err)
+	}
+	if err := ensureM4AMetadataTree(path); err != nil {
+		return err
+	}
+
+	file, err = mtag.Open(path, mtag.WithMaxFileSize(m4aTaggingFileSizeLimit))
+	if err != nil {
+		return fmt.Errorf("reopen M4A metadata: %w", err)
+	}
 	defer func() {
 		_ = file.Close()
 	}()
-
-	if file.Container() != mtag.ContainerMP4 {
-		return fmt.Errorf("unsupported M4A container: %s", file.Container())
-	}
 
 	if value := strings.TrimSpace(tags.Title); value != "" {
 		file.SetTitle(value)

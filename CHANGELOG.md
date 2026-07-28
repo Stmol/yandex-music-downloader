@@ -2,6 +2,7 @@
 
 ## v1.11 - 2026-07-28
 - added M4A metadata writing for lossless `flac-mp4` downloads: title, artists, album, album artist, genre, year, track/disc numbers, Yandex Music source URL, and embedded JPEG/PNG cover art when available
+- create the required M4A metadata atom tree when a valid MP4/M4A has no initial `ilst`, so lossless Yandex Music files receive tags and cover art
 - made M4A tagging non-fatal: if metadata writing fails, the verified audio file is still delivered and a warning is logged instead of deleting or blocking the download
 - covered both `stco` and `co64` sample-offset atoms in the M4A tagging path without requiring ffmpeg or AtomicParsley at runtime
 - preserved unrelated MP3 comment frames while writing an application-owned Yandex Music source URL comment
