@@ -78,7 +78,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 
 -   Upon valid URL input, the next screen displays a track listing with status indicators
 -   Use the action bar to choose a format for all tracks and run actions from one place
--   Press `<Tab>` to move between the track list and controls, `<Left>`/`<Right>` to move inside controls, and `<Enter>`/`<Space>` to activate the focused control
+-   Press `<Tab>` to move between the track list and controls; use arrow keys or `<H>`/`<J>`/`<K>`/`<L>` to move inside controls, `<Esc>` to return to the track list, and `<Enter>`/`<Space>` to activate the focused control
 -   Format selection applies to the whole current queue; individual tracks still fall back to MP3 when lossless is unavailable
 -   Depending on the source returned by Yandex Music, a lossless track may be saved as either `FLAC` or `M4A`
 -   Supported source URLs include tracks, albums, playlists, and Yandex Music charts
@@ -123,6 +123,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 
 ## Troubleshooting
 
+-   If the app reports `TERM=xterm`, run `export TERM=xterm-256color` and start it again; plain `xterm` cannot reliably render the colors, selected row, and focused controls
 -   If downloads fail, you can retry by focusing `Download all` after the process completes
 -   For persistent errors, try using your personal [authentication token](#authentication-token)
 -   In lossless mode, a completed `✅ MP3` status means the app successfully used the MP3 fallback for that track

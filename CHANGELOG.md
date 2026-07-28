@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.10 - 2026-07-28
+- migrated the terminal UI to Charm v2 (`Bubble Tea`, `Bubbles`, and `Lip Gloss`) and updated the application to the new declarative view and keyboard-event APIs
+- made token input, URL input, the track list, progress bar, and action controls adapt to the current terminal width and height; wide Unicode track titles now keep the status column aligned
+- improved download-screen navigation: arrow keys and `H`/`J`/`K`/`L` move between the format and action controls, while `Esc` returns focus to the track list
+- added a startup preflight check for `TERM=xterm`, which explains how to switch to `xterm-256color` before starting the app so colors, focus, and selected rows render correctly
+
 ## v1.9 - 2026-05-24
 - added support for Yandex Music chart URLs, including the default regional chart at `/chart` and region-specific charts such as `/chart/world`
 
