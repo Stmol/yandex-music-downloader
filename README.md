@@ -18,7 +18,7 @@ A GUI application for downloading tracks from the Yandex Music streaming service
 -   Download individual tracks, albums, and playlists in MP3 format by default
 -   Download Yandex Music chart playlists, including region-specific charts
 -   Optional lossless downloads with automatic fallback to the best available MP3
--   Add metadata tags and embedded cover art to downloaded MP3 and FLAC files
+-   Add metadata tags and embedded cover art to downloaded MP3, FLAC, and M4A files
 -   Duplicate detection in playlists
 -   Concurrent file downloads
 
@@ -108,8 +108,9 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 -   Completed tracks show the actual saved format in the status column, for example `✅ FLAC`, `✅ M4A`, or `✅ MP3`
 -   If you stop an active queue, interrupted tracks are returned to `Ready` so you can restart the download cleanly
 -   If needed, you can relaunch the app with `--timeout <seconds>` to limit how long a single file download may take
--   By default, each MP3 or FLAC is tagged with title, artist, album metadata, Yandex track ID, and embedded cover art when available
--   If cover downloads are slow or expensive, relaunch with `--skip-cover=true`; text ID3 tags will still be written
+-   By default, each MP3, FLAC, or M4A file is tagged with title, artist, album metadata, Yandex track URL/source metadata, and embedded JPEG/PNG cover art when available
+-   M4A tagging covers native MP4/M4A containers only; damaged M4A files are not repaired. If optional M4A metadata writing fails, the audio file is still saved and the CLI logs a warning
+-   If cover downloads are slow or expensive, relaunch with `--skip-cover=true`; text tags will still be written
 
 ![downloading](assets/img_download_in_progress.png)
 
@@ -117,7 +118,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 
 -   The progress bar fills completely upon download completion
 -   Downloaded tracks are available in the `./downloads` directory
--   A track is marked as completed only after the audio file is saved and metadata tags are written; cover download failures are ignored so they do not block the track
+-   A track is marked as completed after the audio file is saved. For MP3 and FLAC, metadata tags are written before completion; for M4A, metadata is best-effort and tagging failures do not block delivery. Cover download failures are ignored so they do not block the track
 
 ![download complete](assets/img_download_complete.png)
 
