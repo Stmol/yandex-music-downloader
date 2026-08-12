@@ -116,16 +116,6 @@ type downloadKeyMap struct {
 	Duplicates key.Binding
 }
 
-// TrackProgress represents the download progress and state of a track.
-type TrackProgress struct {
-	uid      string
-	track    *model.Track
-	status   TrackStatus
-	errMsg   string
-	filename string
-	format   string
-}
-
 type DownloadStartMsg struct{}
 type DownloadEndMsg struct{}
 type DownloadProgressUpdateMsg struct {
