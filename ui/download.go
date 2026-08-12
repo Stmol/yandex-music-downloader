@@ -319,12 +319,13 @@ func (m *DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 		cmd = nextDownloadSessionEvent(m.sessionEvents)
 
 	case DownloadProgressUpdateMsg:
-		m.applyProgress(msg.progress)
-		if msg.completed {
-			m.downloadedCount++
+		if m.applyProgress(msg.progress) {
+			if msg.completed {
+				m.downloadedCount++
+			}
+			m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
+			m.updateTrackList()
 		}
-		m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
-		m.updateTrackList()
 		cmd = nextDownloadSessionEvent(m.sessionEvents)
 
 	case DownloadEndMsg:
@@ -443,13 +444,14 @@ func (m DownloadModel) startDownloadSession() tea.Cmd {
 	}
 }
 
-func (m *DownloadModel) applyProgress(progress TrackProgress) {
+func (m *DownloadModel) applyProgress(progress TrackProgress) bool {
 	for _, current := range m.tracksProgress {
 		if current.uid == progress.uid {
 			*current = progress
-			return
+			return true
 		}
 	}
+	return false
 }
 
 func (m *DownloadModel) resetState() {

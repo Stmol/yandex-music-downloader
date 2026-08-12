@@ -428,6 +428,21 @@ func TestDownloadProgressUpdateAppliesWorkerSnapshot(t *testing.T) {
 	assert.Equal(t, 1, updated.downloadedCount)
 }
 
+func TestDownloadProgressUpdateIgnoresUnknownWorkerSnapshot(t *testing.T) {
+	m := NewDownloadModel(nil)
+	track := &model.Track{ID: model.FlexibleID("1"), Title: "Song"}
+	m.tracksProgress = []*TrackProgress{{uid: "track-1", track: track, status: TrackStatusReady}}
+	m.downloadedCount = 3
+
+	updated, _ := m.Update(DownloadProgressUpdateMsg{
+		progress:  TrackProgress{uid: "unknown", track: track, status: TrackStatusDownloaded, filename: "song.mp3", format: "MP3"},
+		completed: true,
+	})
+
+	assert.Equal(t, 3, updated.downloadedCount)
+	assert.Equal(t, []*TrackProgress{{uid: "track-1", track: track, status: TrackStatusReady}}, updated.tracksProgress)
+}
+
 func TestDownloadSessionLogsSkippedReasons(t *testing.T) {
 	var logs bytes.Buffer
 	logger := utils.NewDownloadLoggerForWriter(&logs)
