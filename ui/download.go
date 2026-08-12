@@ -468,7 +468,7 @@ func (m *DownloadModel) resetState() {
 		}
 	}
 
-	m.downloadedCount = countStatus(m.tracksProgress, TrackStatusDownloaded)
+	m.downloadedCount = completedTrackCount(m.tracksProgress)
 	m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
 	m.downloadableCount = countStatus(m.tracksProgress, TrackStatusReady)
 	m.sessionCompletedCount = 0
@@ -538,6 +538,11 @@ func countStatus(tracks []*TrackProgress, status TrackStatus) int {
 		}
 	}
 	return count
+}
+
+func completedTrackCount(tracks []*TrackProgress) int {
+	return countStatus(tracks, TrackStatusDownloaded) +
+		countStatus(tracks, TrackStatusAlreadyExists)
 }
 
 func renderHeader(completed, total, downloadable, errors int) string {
@@ -868,9 +873,10 @@ func (m *DownloadModel) normalizeCanceledTracks() {
 		}
 	}
 
-	m.downloadedCount = countStatus(m.tracksProgress, TrackStatusDownloaded)
+	m.downloadedCount = completedTrackCount(m.tracksProgress)
 	m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
 	m.downloadableCount = countStatus(m.tracksProgress, TrackStatusReady)
+	m.sessionCompletedCount = 0
 	m.tracksTotalCount = len(m.tracksProgress)
 	m.updateTrackList()
 }

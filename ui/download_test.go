@@ -12,7 +12,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func keyText(text string) tea.KeyPressMsg {
@@ -307,6 +306,8 @@ func TestResetState(t *testing.T) {
 	assert.Equal(t, TrackStatusNotAvailable, m.tracksProgress[4].status)
 	assert.Equal(t, 5, m.tracksTotalCount)
 	assert.Equal(t, 1, m.downloadableCount)
+	assert.Equal(t, 2, m.downloadedCount)
+	assert.Equal(t, 0, m.sessionCompletedCount)
 }
 
 func TestSessionProgressExcludesPriorDownloads(t *testing.T) {
@@ -326,8 +327,7 @@ func TestSessionProgressExcludesPriorDownloads(t *testing.T) {
 
 	m.resetState()
 
-	assert.GreaterOrEqual(t, m.sessionProgress(), 0.0)
-	assert.Less(t, m.sessionProgress(), 1.0)
+	assert.InDelta(t, 0.0, m.sessionProgress(), 0.0001)
 
 	for i := 0; i < 5; i++ {
 		updated, _ := m.Update(DownloadProgressUpdateMsg{
@@ -349,12 +349,20 @@ func TestStartDownloadSessionKeepsCompletedTrackStates(t *testing.T) {
 	}
 
 	m.resetState()
-	msg := m.startDownloadSession()()
-	started, ok := msg.(downloadSessionStartedMsg)
-	require.True(t, ok)
+	session := NewDownloadSession(
+		&fakeDownloadClient{filename: "song.mp3"},
+		utils.NewDiscardDownloadLogger(),
+		ya.DownloadOptions{},
+		t.TempDir(),
+	)
+
+	progress := make([]TrackProgress, 0, len(m.tracksProgress))
+	for _, item := range m.tracksProgress {
+		progress = append(progress, *item)
+	}
 
 	eventCount := 0
-	for event := range started.events {
+	for event := range session.Run(progress) {
 		eventCount++
 		assert.Equal(t, "ready", event.Progress.uid)
 		updated, _ := m.Update(DownloadProgressUpdateMsg{
@@ -367,6 +375,8 @@ func TestStartDownloadSessionKeepsCompletedTrackStates(t *testing.T) {
 	assert.Equal(t, 2, eventCount)
 	assert.Equal(t, TrackStatusDownloaded, m.tracksProgress[0].status)
 	assert.Equal(t, TrackStatusAlreadyExists, m.tracksProgress[1].status)
+	assert.Equal(t, TrackStatusDownloaded, m.tracksProgress[2].status)
+	assert.Equal(t, "song.mp3", m.tracksProgress[2].filename)
 }
 
 func TestSkipDownloadReason(t *testing.T) {
@@ -584,8 +594,10 @@ func TestDownloadEndRestoresCanceledTracksToReady(t *testing.T) {
 	m := NewDownloadModel(nil)
 	m.isDownloading = true
 	m.shutdownRequested = true
+	m.sessionCompletedCount = 4
 	m.tracksProgress = []*TrackProgress{
 		{status: TrackStatusDownloaded, filename: "done.mp3"},
+		{status: TrackStatusAlreadyExists, filename: "exists.mp3"},
 		{status: TrackStatusError, errMsg: "context canceled"},
 		{status: TrackStatusDownloading},
 	}
@@ -593,11 +605,14 @@ func TestDownloadEndRestoresCanceledTracksToReady(t *testing.T) {
 	updated, _ := m.Update(DownloadEndMsg{})
 
 	assert.Equal(t, TrackStatusDownloaded, updated.tracksProgress[0].status)
-	assert.Equal(t, TrackStatusReady, updated.tracksProgress[1].status)
-	assert.Empty(t, updated.tracksProgress[1].errMsg)
+	assert.Equal(t, TrackStatusAlreadyExists, updated.tracksProgress[1].status)
 	assert.Equal(t, TrackStatusReady, updated.tracksProgress[2].status)
-	assert.Equal(t, 1, updated.downloadedCount)
+	assert.Empty(t, updated.tracksProgress[2].errMsg)
+	assert.Equal(t, TrackStatusReady, updated.tracksProgress[3].status)
+	assert.Equal(t, 2, updated.downloadedCount)
 	assert.Equal(t, 2, updated.downloadableCount)
+	assert.Equal(t, 0, updated.sessionCompletedCount)
+	assert.InDelta(t, 0.0, updated.sessionProgress(), 0.0001)
 	assert.Equal(t, 0, updated.errorCount)
 }
 
