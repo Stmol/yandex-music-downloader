@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 	"ya-music/utils"
 	"ya-music/ya"
@@ -306,6 +307,37 @@ func TestResetState(t *testing.T) {
 	assert.Equal(t, TrackStatusNotAvailable, m.tracksProgress[4].status)
 	assert.Equal(t, 5, m.tracksTotalCount)
 	assert.Equal(t, 1, m.downloadableCount)
+}
+
+func TestSessionProgressExcludesPriorDownloads(t *testing.T) {
+	m := NewDownloadModel(nil)
+	for i := 0; i < 5; i++ {
+		m.tracksProgress = append(m.tracksProgress, &TrackProgress{
+			uid:    fmt.Sprintf("downloaded-%d", i),
+			status: TrackStatusDownloaded,
+		})
+	}
+	for i := 0; i < 5; i++ {
+		m.tracksProgress = append(m.tracksProgress, &TrackProgress{
+			uid:    fmt.Sprintf("ready-%d", i),
+			status: TrackStatusReady,
+		})
+	}
+
+	m.resetState()
+
+	assert.GreaterOrEqual(t, m.sessionProgress(), 0.0)
+	assert.Less(t, m.sessionProgress(), 1.0)
+
+	for i := 0; i < 5; i++ {
+		updated, _ := m.Update(DownloadProgressUpdateMsg{
+			progress:  TrackProgress{uid: fmt.Sprintf("ready-%d", i), status: TrackStatusDownloaded},
+			completed: true,
+		})
+		m = updated
+	}
+
+	assert.InDelta(t, 1.0, m.sessionProgress(), 0.0001)
 }
 
 func TestStartDownloadSessionKeepsCompletedTrackStates(t *testing.T) {

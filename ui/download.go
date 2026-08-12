@@ -137,10 +137,11 @@ type DownloadModel struct {
 	tracksProgress []*TrackProgress
 
 	// Counters.
-	tracksTotalCount  int
-	downloadedCount   int
-	downloadableCount int
-	errorCount        int
+	tracksTotalCount      int
+	downloadedCount       int
+	downloadableCount     int
+	sessionCompletedCount int
+	errorCount            int
 
 	// UI state.
 	isDownloading     bool
@@ -212,6 +213,7 @@ func (m *DownloadModel) Reset() {
 	m.tracksTotalCount = 0
 	m.downloadedCount = 0
 	m.downloadableCount = 0
+	m.sessionCompletedCount = 0
 	m.errorCount = 0
 	m.isDownloading = false
 	m.shutdownRequested = false
@@ -322,6 +324,7 @@ func (m *DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 		if m.applyProgress(msg.progress) {
 			if msg.completed {
 				m.downloadedCount++
+				m.sessionCompletedCount++
 			}
 			m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
 			m.updateTrackList()
@@ -468,6 +471,7 @@ func (m *DownloadModel) resetState() {
 	m.downloadedCount = countStatus(m.tracksProgress, TrackStatusDownloaded)
 	m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
 	m.downloadableCount = countStatus(m.tracksProgress, TrackStatusReady)
+	m.sessionCompletedCount = 0
 	m.tracksTotalCount = len(m.tracksProgress)
 
 	m.updateTrackList()
@@ -511,11 +515,19 @@ func (m *DownloadModel) getTrackInfo(uid string) string {
 }
 
 func (m DownloadModel) renderProgress() string {
-	var percent float64
-	if m.downloadableCount > 0 {
-		percent = float64(m.downloadedCount) / float64(m.downloadableCount)
+	return m.progress.ViewAs(m.sessionProgress())
+}
+
+func (m DownloadModel) sessionProgress() float64 {
+	if m.downloadableCount <= 0 {
+		return 0
 	}
-	return m.progress.ViewAs(percent)
+
+	percent := float64(m.sessionCompletedCount) / float64(m.downloadableCount)
+	if percent > 1 {
+		return 1
+	}
+	return percent
 }
 
 func countStatus(tracks []*TrackProgress, status TrackStatus) int {
