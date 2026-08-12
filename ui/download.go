@@ -807,6 +807,8 @@ func skipDownloadReason(status TrackStatus) (string, bool) {
 		return "not_available", true
 	case TrackStatusAlreadyExists:
 		return "already_exists", true
+	case TrackStatusDownloaded:
+		return "already_downloaded", true
 	default:
 		return "", false
 	}

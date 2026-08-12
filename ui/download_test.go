@@ -321,20 +321,41 @@ func TestStartDownloadSessionKeepsCompletedTrackStates(t *testing.T) {
 	started, ok := msg.(downloadSessionStartedMsg)
 	require.True(t, ok)
 
-	var events []DownloadSessionEvent
+	eventCount := 0
 	for event := range started.events {
-		events = append(events, event)
+		eventCount++
+		assert.Equal(t, "ready", event.Progress.uid)
+		updated, _ := m.Update(DownloadProgressUpdateMsg{
+			progress:  event.Progress,
+			completed: event.Completed,
+		})
+		m = updated
 	}
 
-	require.Len(t, events, 4)
-	assert.Contains(t, events, DownloadSessionEvent{
-		Progress: TrackProgress{uid: "downloaded", track: m.tracksProgress[0].track, status: TrackStatusDownloading},
-	})
-	assert.Contains(t, events, DownloadSessionEvent{
-		Progress: TrackProgress{uid: "ready", track: m.tracksProgress[2].track, status: TrackStatusDownloading},
-	})
+	assert.Equal(t, 2, eventCount)
 	assert.Equal(t, TrackStatusDownloaded, m.tracksProgress[0].status)
 	assert.Equal(t, TrackStatusAlreadyExists, m.tracksProgress[1].status)
+}
+
+func TestSkipDownloadReason(t *testing.T) {
+	testCases := []struct {
+		status TrackStatus
+		reason string
+	}{
+		{TrackStatusDownloading, "already_downloading"},
+		{TrackStatusDownloaded, "already_downloaded"},
+		{TrackStatusDuplicate, "duplicate"},
+		{TrackStatusNotAvailable, "not_available"},
+		{TrackStatusAlreadyExists, "already_exists"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.reason, func(t *testing.T) {
+			reason, shouldSkip := skipDownloadReason(testCase.status)
+			assert.True(t, shouldSkip)
+			assert.Equal(t, testCase.reason, reason)
+		})
+	}
 }
 
 func TestUpdateTrackList(t *testing.T) {
