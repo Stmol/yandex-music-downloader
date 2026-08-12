@@ -411,14 +411,29 @@ func TestFindDuplicates(t *testing.T) {
 	assert.Equal(t, TrackStatusReady, tracks[3].status)
 }
 
-func TestDownloadTracksLogsSkippedReasons(t *testing.T) {
+func TestDownloadProgressUpdateAppliesWorkerSnapshot(t *testing.T) {
+	m := NewDownloadModel(nil)
+	track := &model.Track{ID: model.FlexibleID("1"), Title: "Song"}
+	m.tracksProgress = []*TrackProgress{{uid: "track-1", track: track, status: TrackStatusReady}}
+	m.tracksTotalCount = 1
+	m.downloadableCount = 1
+
+	updated, _ := m.Update(DownloadProgressUpdateMsg{
+		progress:  TrackProgress{uid: "track-1", track: track, status: TrackStatusDownloaded, filename: "song.mp3", format: "MP3"},
+		completed: true,
+	})
+
+	assert.Equal(t, TrackStatusDownloaded, updated.tracksProgress[0].status)
+	assert.Equal(t, "song.mp3", updated.tracksProgress[0].filename)
+	assert.Equal(t, 1, updated.downloadedCount)
+}
+
+func TestDownloadSessionLogsSkippedReasons(t *testing.T) {
 	var logs bytes.Buffer
 	logger := utils.NewDownloadLoggerForWriter(&logs)
 	client := ya.NewClient(utils.NewHttpClientWithLogger(logger))
-	m := NewDownloadModel(client)
-	updCh := make(chan TrackProgress)
 
-	progressList := []*TrackProgress{
+	progressList := []TrackProgress{
 		{
 			track:  &model.Track{ID: model.FlexibleID("1"), Title: "Duplicate"},
 			status: TrackStatusDuplicate,
@@ -429,8 +444,9 @@ func TestDownloadTracksLogsSkippedReasons(t *testing.T) {
 		},
 	}
 
-	msg := m.downloadTracks(updCh, progressList)()
-	assert.IsType(t, DownloadStartMsg{}, msg)
+	session := NewDownloadSession(client, logger, ya.DownloadOptions{}, outputDir)
+	for range session.Run(progressList) {
+	}
 
 	assert.Contains(t, logs.String(), "download session started")
 	assert.Contains(t, logs.String(), "reason=duplicate")
