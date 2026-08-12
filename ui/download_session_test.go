@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"testing"
 	"time"
@@ -47,6 +48,27 @@ func TestDownloadSessionEmitsSnapshotsWithoutMutatingInput(t *testing.T) {
 	assert.Equal(t, TrackStatusDownloading, events[0].Progress.status)
 	assert.Equal(t, TrackStatusDownloaded, events[1].Progress.status)
 	assert.True(t, events[1].Completed)
+}
+
+func TestDownloadSessionTurnsClientErrorIntoCompletedErrorEvent(t *testing.T) {
+	session := NewDownloadSession(
+		&fakeDownloadClient{err: context.Canceled},
+		utils.NewDownloadLoggerForWriter(io.Discard),
+		ya.DownloadOptions{},
+		t.TempDir(),
+	)
+
+	var final DownloadSessionEvent
+	for event := range session.Run([]TrackProgress{{
+		uid: "track-1", track: &model.Track{ID: model.FlexibleID("1"), Title: "Song"}, status: TrackStatusReady,
+	}}) {
+		if event.Completed {
+			final = event
+		}
+	}
+
+	assert.Equal(t, TrackStatusError, final.Progress.status)
+	assert.Contains(t, final.Progress.errMsg, "context canceled")
 }
 
 type blockingDownloadClient struct {

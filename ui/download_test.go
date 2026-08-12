@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func keyText(text string) tea.KeyPressMsg {
@@ -290,6 +291,7 @@ func TestResetState(t *testing.T) {
 	m := NewDownloadModel(nil)
 	m.tracksProgress = []*TrackProgress{
 		{status: TrackStatusDownloaded},
+		{status: TrackStatusAlreadyExists},
 		{status: TrackStatusError},
 		{status: TrackStatusDuplicate},
 		{status: TrackStatusNotAvailable},
@@ -297,12 +299,42 @@ func TestResetState(t *testing.T) {
 
 	m.resetState()
 
-	assert.Equal(t, TrackStatusReady, m.tracksProgress[0].status)
-	assert.Equal(t, TrackStatusReady, m.tracksProgress[1].status)
-	assert.Equal(t, TrackStatusDuplicate, m.tracksProgress[2].status)
-	assert.Equal(t, TrackStatusNotAvailable, m.tracksProgress[3].status)
-	assert.Equal(t, 4, m.tracksTotalCount)
-	assert.Equal(t, 2, m.downloadableCount)
+	assert.Equal(t, TrackStatusDownloaded, m.tracksProgress[0].status)
+	assert.Equal(t, TrackStatusAlreadyExists, m.tracksProgress[1].status)
+	assert.Equal(t, TrackStatusReady, m.tracksProgress[2].status)
+	assert.Equal(t, TrackStatusDuplicate, m.tracksProgress[3].status)
+	assert.Equal(t, TrackStatusNotAvailable, m.tracksProgress[4].status)
+	assert.Equal(t, 5, m.tracksTotalCount)
+	assert.Equal(t, 1, m.downloadableCount)
+}
+
+func TestStartDownloadSessionKeepsCompletedTrackStates(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.tracksProgress = []*TrackProgress{
+		{uid: "downloaded", track: &model.Track{ID: model.FlexibleID("1"), Title: "Downloaded"}, status: TrackStatusDownloaded},
+		{uid: "exists", track: &model.Track{ID: model.FlexibleID("2"), Title: "Exists"}, status: TrackStatusAlreadyExists},
+		{uid: "ready", track: &model.Track{ID: model.FlexibleID("3"), Title: "Ready"}, status: TrackStatusReady},
+	}
+
+	m.resetState()
+	msg := m.startDownloadSession()()
+	started, ok := msg.(downloadSessionStartedMsg)
+	require.True(t, ok)
+
+	var events []DownloadSessionEvent
+	for event := range started.events {
+		events = append(events, event)
+	}
+
+	require.Len(t, events, 4)
+	assert.Contains(t, events, DownloadSessionEvent{
+		Progress: TrackProgress{uid: "downloaded", track: m.tracksProgress[0].track, status: TrackStatusDownloading},
+	})
+	assert.Contains(t, events, DownloadSessionEvent{
+		Progress: TrackProgress{uid: "ready", track: m.tracksProgress[2].track, status: TrackStatusDownloading},
+	})
+	assert.Equal(t, TrackStatusDownloaded, m.tracksProgress[0].status)
+	assert.Equal(t, TrackStatusAlreadyExists, m.tracksProgress[1].status)
 }
 
 func TestUpdateTrackList(t *testing.T) {
