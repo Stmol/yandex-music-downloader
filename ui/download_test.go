@@ -299,14 +299,14 @@ func TestResetState(t *testing.T) {
 
 	m.resetState()
 
-	assert.Equal(t, TrackStatusDownloaded, m.tracksProgress[0].status)
-	assert.Equal(t, TrackStatusAlreadyExists, m.tracksProgress[1].status)
+	assert.Equal(t, TrackStatusReady, m.tracksProgress[0].status)
+	assert.Equal(t, TrackStatusReady, m.tracksProgress[1].status)
 	assert.Equal(t, TrackStatusReady, m.tracksProgress[2].status)
 	assert.Equal(t, TrackStatusDuplicate, m.tracksProgress[3].status)
 	assert.Equal(t, TrackStatusNotAvailable, m.tracksProgress[4].status)
 	assert.Equal(t, 5, m.tracksTotalCount)
-	assert.Equal(t, 1, m.downloadableCount)
-	assert.Equal(t, 2, m.downloadedCount)
+	assert.Equal(t, 3, m.downloadableCount)
+	assert.Equal(t, 0, m.downloadedCount)
 	assert.Equal(t, 0, m.sessionCompletedCount)
 }
 
@@ -327,8 +327,16 @@ func TestSessionProgressExcludesPriorDownloads(t *testing.T) {
 
 	m.resetState()
 
+	assert.Equal(t, 10, m.downloadableCount)
 	assert.InDelta(t, 0.0, m.sessionProgress(), 0.0001)
 
+	for i := 0; i < 5; i++ {
+		updated, _ := m.Update(DownloadProgressUpdateMsg{
+			progress:  TrackProgress{uid: fmt.Sprintf("downloaded-%d", i), status: TrackStatusDownloaded},
+			completed: true,
+		})
+		m = updated
+	}
 	for i := 0; i < 5; i++ {
 		updated, _ := m.Update(DownloadProgressUpdateMsg{
 			progress:  TrackProgress{uid: fmt.Sprintf("ready-%d", i), status: TrackStatusDownloaded},
@@ -340,7 +348,7 @@ func TestSessionProgressExcludesPriorDownloads(t *testing.T) {
 	assert.InDelta(t, 1.0, m.sessionProgress(), 0.0001)
 }
 
-func TestStartDownloadSessionKeepsCompletedTrackStates(t *testing.T) {
+func TestStartDownloadSessionRequeuesCompletedTracksAfterReset(t *testing.T) {
 	m := NewDownloadModel(nil)
 	m.tracksProgress = []*TrackProgress{
 		{uid: "downloaded", track: &model.Track{ID: model.FlexibleID("1"), Title: "Downloaded"}, status: TrackStatusDownloaded},
@@ -364,7 +372,6 @@ func TestStartDownloadSessionKeepsCompletedTrackStates(t *testing.T) {
 	eventCount := 0
 	for event := range session.Run(progress) {
 		eventCount++
-		assert.Equal(t, "ready", event.Progress.uid)
 		updated, _ := m.Update(DownloadProgressUpdateMsg{
 			progress:  event.Progress,
 			completed: event.Completed,
@@ -372,11 +379,44 @@ func TestStartDownloadSessionKeepsCompletedTrackStates(t *testing.T) {
 		m = updated
 	}
 
-	assert.Equal(t, 2, eventCount)
+	assert.Equal(t, 6, eventCount)
 	assert.Equal(t, TrackStatusDownloaded, m.tracksProgress[0].status)
-	assert.Equal(t, TrackStatusAlreadyExists, m.tracksProgress[1].status)
+	assert.Equal(t, TrackStatusDownloaded, m.tracksProgress[1].status)
 	assert.Equal(t, TrackStatusDownloaded, m.tracksProgress[2].status)
 	assert.Equal(t, "song.mp3", m.tracksProgress[2].filename)
+}
+
+func TestResetStateRequeuesAllDownloadedTracksForNewSession(t *testing.T) {
+	m := NewDownloadModel(nil)
+	for i := 0; i < 3; i++ {
+		m.tracksProgress = append(m.tracksProgress, &TrackProgress{
+			uid:    fmt.Sprintf("track-%d", i),
+			track:  &model.Track{ID: model.FlexibleID(fmt.Sprintf("%d", i)), Title: fmt.Sprintf("Song %d", i)},
+			status: TrackStatusDownloaded,
+		})
+	}
+
+	m.resetState()
+	assert.Equal(t, 3, m.downloadableCount)
+
+	session := NewDownloadSession(
+		&fakeDownloadClient{filename: "song.mp3"},
+		utils.NewDiscardDownloadLogger(),
+		ya.DownloadOptions{},
+		t.TempDir(),
+	)
+
+	progress := make([]TrackProgress, 0, len(m.tracksProgress))
+	for _, item := range m.tracksProgress {
+		progress = append(progress, *item)
+	}
+
+	eventCount := 0
+	for range session.Run(progress) {
+		eventCount++
+	}
+
+	assert.Equal(t, 6, eventCount)
 }
 
 func TestSkipDownloadReason(t *testing.T) {
@@ -385,10 +425,8 @@ func TestSkipDownloadReason(t *testing.T) {
 		reason string
 	}{
 		{TrackStatusDownloading, "already_downloading"},
-		{TrackStatusDownloaded, "already_downloaded"},
 		{TrackStatusDuplicate, "duplicate"},
 		{TrackStatusNotAvailable, "not_available"},
-		{TrackStatusAlreadyExists, "already_exists"},
 	}
 
 	for _, testCase := range testCases {
@@ -396,6 +434,13 @@ func TestSkipDownloadReason(t *testing.T) {
 			reason, shouldSkip := skipDownloadReason(testCase.status)
 			assert.True(t, shouldSkip)
 			assert.Equal(t, testCase.reason, reason)
+		})
+	}
+
+	for _, status := range []TrackStatus{TrackStatusDownloaded, TrackStatusAlreadyExists, TrackStatusReady, TrackStatusError} {
+		t.Run(status.String(), func(t *testing.T) {
+			_, shouldSkip := skipDownloadReason(status)
+			assert.False(t, shouldSkip)
 		})
 	}
 }

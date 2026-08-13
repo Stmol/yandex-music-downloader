@@ -459,13 +459,11 @@ func (m *DownloadModel) applyProgress(progress TrackProgress) bool {
 
 func (m *DownloadModel) resetState() {
 	for _, tp := range m.tracksProgress {
-		switch tp.status {
-		case TrackStatusDownloaded, TrackStatusAlreadyExists, TrackStatusDuplicate, TrackStatusNotAvailable:
+		if tp.status == TrackStatusDuplicate || tp.status == TrackStatusNotAvailable {
 			continue
-		default:
-			tp.status = TrackStatusReady
-			tp.format = ""
 		}
+		tp.status = TrackStatusReady
+		tp.format = ""
 	}
 
 	m.downloadedCount = completedTrackCount(m.tracksProgress)
@@ -822,10 +820,6 @@ func skipDownloadReason(status TrackStatus) (string, bool) {
 		return "duplicate", true
 	case TrackStatusNotAvailable:
 		return "not_available", true
-	case TrackStatusAlreadyExists:
-		return "already_exists", true
-	case TrackStatusDownloaded:
-		return "already_downloaded", true
 	default:
 		return "", false
 	}
