@@ -75,6 +75,7 @@ type Client struct {
 	logger             *utils.DownloadLogger
 	losslessDownloader losslessTrackDownloader
 	mp3Downloader      trackDownloadFunc
+	mp3Tagger          artifactTagger
 	m4aTagger          m4aTagger
 	userUID            int
 	username           string
@@ -400,26 +401,32 @@ func (c *Client) downloadTrackMP3(track model.Track, outputDir string, options D
 		track,
 		filename,
 		options,
-		mp3ArtifactSpec(),
-		func(tempFilename string) error {
+		c.mp3ArtifactSpec(),
+		func(tempFilename string) (err error) {
 			file, err := os.OpenFile(tempFilename, os.O_WRONLY|os.O_TRUNC, 0600)
 			if err != nil {
 				return fmt.Errorf("open MP3 temp file: %w", err)
 			}
 
-			written, downloadErr := c.httpClient.DownloadToWriterWithContext(
+			var written int64
+			defer func() {
+				closeErr := file.Close()
+				if closeErr == nil {
+					return
+				}
+				if err == nil {
+					err = fmt.Errorf("close MP3 temp file after %d bytes: %w", written, closeErr)
+					return
+				}
+				err = errors.Join(err, closeErr)
+			}()
+
+			written, err = c.httpClient.DownloadToWriterWithContext(
 				c.requestContext(trackCtx, "download_file", "download_mp3"),
 				link,
 				file,
 			)
-			closeErr := file.Close()
-			if downloadErr != nil {
-				return fmt.Errorf("failed to download file: %w", downloadErr)
-			}
-			if closeErr != nil {
-				return fmt.Errorf("close MP3 temp file after %d bytes: %w", written, closeErr)
-			}
-			return nil
+			return err
 		},
 	)
 	if err != nil {

@@ -689,12 +689,8 @@ func TestDownloadTrackMP3ReturnsTaggerErrorWithoutPartialDestination(t *testing.
 	client := newMP3TestClient(t, ts)
 	destination := buildTrackFilename(track, outputDir)
 
-	originalTagger := mp3Tagger
 	tagger := &recordingArtifactTagger{err: errors.New("tag failure")}
-	mp3Tagger = tagger
-	t.Cleanup(func() {
-		mp3Tagger = originalTagger
-	})
+	client.mp3Tagger = tagger
 
 	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{})
 

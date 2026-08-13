@@ -76,29 +76,26 @@ func (c *Client) publishAudioArtifact(
 		return artifactPublishResult{}, fmt.Errorf("error creating artifact temp file: %w", err)
 	}
 	tempFilename := tempFile.Name()
-	_ = tempFile.Close()
-
 	cleanupTemp := true
 	defer func() {
 		if cleanupTemp {
 			_ = os.Remove(tempFilename)
 		}
 	}()
+	if err := tempFile.Close(); err != nil {
+		return artifactPublishResult{}, fmt.Errorf("error closing artifact temp file: %w", err)
+	}
 
-	coverCh := c.startCoverDownload(track, destination, options)
 	if err := writeAudio(tempFilename); err != nil {
 		c.logTrackFailure(trackCtx, spec.DownloadStage, err,
 			"filename", destination,
 			"temp_filename", tempFilename,
 			"format", spec.Format,
 		)
-		cover := c.waitCoverDownload(trackCtx, coverCh)
-		if cover.filename != "" {
-			c.removeCoverFile(trackCtx, cover.filename)
-		}
 		return artifactPublishResult{}, err
 	}
 
+	coverCh := c.startCoverDownload(track, destination, options)
 	cover := c.waitCoverDownload(trackCtx, coverCh)
 	if cover.filename != "" {
 		defer c.removeCoverFile(trackCtx, cover.filename)
@@ -148,8 +145,6 @@ func (c *Client) publishAudioArtifact(
 	return artifactPublishResult{Filename: destination, CoverFilename: cover.filename}, nil
 }
 
-var mp3Tagger artifactTagger = mp3ArtifactTagger{}
-
 type mp3ArtifactTagger struct{}
 
 func (mp3ArtifactTagger) Write(path string, metadata artifactMetadata) error {
@@ -176,13 +171,20 @@ func (t m4aArtifactTagger) Write(path string, metadata artifactMetadata) error {
 	return t.client.m4aTags().Write(path, tags)
 }
 
-func mp3ArtifactSpec() artifactSpec {
+func (c *Client) mp3Tags() artifactTagger {
+	if c == nil || c.mp3Tagger == nil {
+		return mp3ArtifactTagger{}
+	}
+	return c.mp3Tagger
+}
+
+func (c *Client) mp3ArtifactSpec() artifactSpec {
 	return artifactSpec{
 		Format:             "mp3",
 		DownloadStage:      "download_file",
 		MetadataStage:      "id3_tags",
 		CompletionStage:    "id3_tags",
-		Tagger:             mp3Tagger,
+		Tagger:             c.mp3Tags(),
 		FailurePolicy:      metadataRequired,
 		MetadataSuccessMsg: "ID3 metadata written",
 	}

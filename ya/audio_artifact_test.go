@@ -187,7 +187,13 @@ func TestPublishAudioArtifactPublishesRawAudioWhenBestEffortTagsFail(t *testing.
 func TestPublishAudioArtifactCleansCoverWhenAudioWriteFails(t *testing.T) {
 	dir := t.TempDir()
 	destination := filepath.Join(dir, "track.mp3")
-	coverServer := newCoverTestServer(t)
+	var coverRequests int
+	coverServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		coverRequests++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("cover-bytes"))
+	}))
+	t.Cleanup(coverServer.Close)
 
 	track := model.Track{
 		ID:       model.FlexibleID("1"),
@@ -214,6 +220,7 @@ func TestPublishAudioArtifactCleansCoverWhenAudioWriteFails(t *testing.T) {
 	assert.ErrorIs(t, err, writeErr)
 	assert.Empty(t, result.Filename)
 	assert.Empty(t, tagger.paths)
+	assert.Zero(t, coverRequests, "cover download must not start when audio write fails")
 
 	_, err = os.Stat(destination)
 	assert.True(t, os.IsNotExist(err))
@@ -574,7 +581,8 @@ func TestAudioArtifactM4aTaggerCoverHandling(t *testing.T) {
 }
 
 func TestAudioArtifactMp3Spec(t *testing.T) {
-	spec := mp3ArtifactSpec()
+	client := NewClient(nil)
+	spec := client.mp3ArtifactSpec()
 
 	assert.Equal(t, "mp3", spec.Format)
 	assert.Equal(t, "download_file", spec.DownloadStage)
