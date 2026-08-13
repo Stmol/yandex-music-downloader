@@ -3,13 +3,16 @@ package ui
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"testing"
 	"ya-music/utils"
 	"ya-music/ya"
 	"ya-music/ya/model"
 
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -92,7 +95,7 @@ func TestAddTracks(t *testing.T) {
 	assert.Equal(t, 1, m.downloadableCount)
 }
 
-func TestCycleFocusMovesBetweenListAndActionGroupOnly(t *testing.T) {
+func TestCycleFocusWalksThroughCommandDeck(t *testing.T) {
 	m := NewDownloadModel(nil)
 
 	assert.Equal(t, viewList, m.focusedView)
@@ -101,15 +104,25 @@ func TestCycleFocusMovesBetweenListAndActionGroupOnly(t *testing.T) {
 	assert.Equal(t, viewFormatMP3, m.focusedView)
 
 	m.cycleFocus()
-	assert.Equal(t, viewList, m.focusedView)
-
-	m.focusedView = viewDownloadButton
-	m.lastActionFocus = viewDownloadButton
-	m.cycleFocus()
-	assert.Equal(t, viewList, m.focusedView)
+	assert.Equal(t, viewFormatFLAC, m.focusedView)
 
 	m.cycleFocus()
 	assert.Equal(t, viewDownloadButton, m.focusedView)
+
+	m.cycleFocus()
+	assert.Equal(t, viewBackButton, m.focusedView)
+
+	m.cycleFocus()
+	assert.Equal(t, viewQuitButton, m.focusedView)
+
+	m.cycleFocus()
+	assert.Equal(t, viewList, m.focusedView)
+
+	updated, _ := m.Update(keyText("shift+tab"))
+	assert.Equal(t, viewQuitButton, updated.focusedView)
+
+	updated, _ = updated.Update(keyText("shift+tab"))
+	assert.Equal(t, viewBackButton, updated.focusedView)
 }
 
 func TestCycleFocusSkipsBackWhenDownloading(t *testing.T) {
@@ -129,7 +142,7 @@ func TestCycleFocusMovesOffDisabledControlWhenDownloadingStarts(t *testing.T) {
 	m.isDownloading = true
 
 	m.cycleFocus()
-	assert.Equal(t, viewList, m.focusedView)
+	assert.Equal(t, viewQuitButton, m.focusedView)
 }
 
 func TestToggleAudioFormat(t *testing.T) {
@@ -154,12 +167,52 @@ func TestToggleAudioFormatIsDisabledWhileDownloading(t *testing.T) {
 	assert.Equal(t, ya.AudioFormatMP3, updated.downloadOptions.FormatOrDefault())
 }
 
+func TestFormatShortcutsSelectFormatWhileIdle(t *testing.T) {
+	m := NewDownloadModel(nil)
+
+	updated, _ := m.Update(keyText("2"))
+	assert.Equal(t, ya.AudioFormatFLAC, updated.downloadOptions.FormatOrDefault())
+
+	updated, _ = updated.Update(keyText("1"))
+	assert.Equal(t, ya.AudioFormatMP3, updated.downloadOptions.FormatOrDefault())
+}
+
+func TestFormatShortcutsAreDisabledWhileDownloading(t *testing.T) {
+	m := NewDownloadModel(nil, ya.DownloadOptions{AudioFormat: ya.AudioFormatMP3})
+	m.isDownloading = true
+
+	updated, _ := m.Update(keyText("2"))
+	assert.Equal(t, ya.AudioFormatMP3, updated.downloadOptions.FormatOrDefault())
+}
+
 func TestRenderFormatToggleShowsSelectedFormat(t *testing.T) {
 	m := NewDownloadModel(nil, ya.DownloadOptions{AudioFormat: ya.AudioFormatFLAC})
 
-	assert.Contains(t, renderActionBar(m), "Format")
-	assert.Contains(t, renderActionBar(m), "MP3")
-	assert.Contains(t, renderActionBar(m), "FLAC")
+	actionBar := renderActionBar(m)
+	assert.Contains(t, actionBar, "FORMAT")
+	assert.Contains(t, actionBar, "○ MP3")
+	assert.Contains(t, actionBar, "● FLAC")
+	assert.NotContains(t, actionBar, "[ MP3 ]")
+}
+
+func TestFocusedFormatDoesNotLeakNestedANSI(t *testing.T) {
+	m := NewDownloadModel(nil, ya.DownloadOptions{AudioFormat: ya.AudioFormatFLAC})
+	m.trackList.SetWidth(95)
+	m.focusedView = viewFormatFLAC
+
+	actionBar := renderActionBar(m)
+	stripped := ansi.Strip(actionBar)
+
+	assert.Contains(t, stripped, "2 ● FLAC")
+	assert.NotContains(t, stripped, "[1;38;2;213;183;208m")
+}
+
+func TestFocusedControlUsesHighlightWithoutUnderline(t *testing.T) {
+	rendered := renderControl("q Quit", true, false, true)
+
+	assert.Contains(t, ansi.Strip(rendered), "q Quit")
+	assert.NotContains(t, rendered, "\x1b[4m")
+	assert.Contains(t, rendered, "38;2;213;183;208")
 }
 
 func TestArrowKeysMoveAcrossActionControls(t *testing.T) {
@@ -170,7 +223,7 @@ func TestArrowKeysMoveAcrossActionControls(t *testing.T) {
 	assert.Equal(t, viewFormatFLAC, updated.focusedView)
 
 	updated, _ = updated.Update(keyCode(tea.KeyRight))
-	assert.Equal(t, viewBackButton, updated.focusedView)
+	assert.Equal(t, viewDownloadButton, updated.focusedView)
 
 	updated, _ = updated.Update(keyCode(tea.KeyLeft))
 	assert.Equal(t, viewFormatFLAC, updated.focusedView)
@@ -181,7 +234,7 @@ func TestArrowKeysMoveBetweenActionRows(t *testing.T) {
 	m.focusedView = viewFormatMP3
 
 	updated, _ := m.Update(keyCode(tea.KeyDown))
-	assert.Equal(t, viewBackButton, updated.focusedView)
+	assert.Equal(t, viewDownloadButton, updated.focusedView)
 
 	updated, _ = updated.Update(keyCode(tea.KeyUp))
 	assert.Equal(t, viewFormatMP3, updated.focusedView)
@@ -214,6 +267,57 @@ func TestActionBarActivationUsesEnterAndSpace(t *testing.T) {
 	updated.focusedView = viewFormatMP3
 	updated, _ = updated.Update(keyCode(tea.KeyEnter))
 	assert.Equal(t, ya.AudioFormatMP3, updated.downloadOptions.FormatOrDefault())
+}
+
+func TestQuitShortcutUsesVisibleQuitBehavior(t *testing.T) {
+	idle := NewDownloadModel(nil)
+	_, idleCmd := idle.Update(keyText("q"))
+	if assert.NotNil(t, idleCmd) {
+		assert.IsType(t, tea.QuitMsg{}, idleCmd())
+	}
+
+	active := NewDownloadModel(ya.NewClient(utils.NewHttpClient()))
+	active.isDownloading = true
+	updated, activeCmd := active.Update(keyText("q"))
+	assert.True(t, updated.shutdownRequested)
+	assert.False(t, updated.quitAfterCancel)
+	assert.Nil(t, activeCmd)
+}
+
+func TestEnterOnTrackListDoesNotActivateAction(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 1)
+
+	updated, cmd := m.Update(keyCode(tea.KeyEnter))
+	assert.False(t, updated.isDownloading)
+	assert.Equal(t, viewList, updated.focusedView)
+	assert.Nil(t, cmd)
+}
+
+func TestEnterWhileFilteringOnlyAppliesTheFilter(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 1)
+
+	updated, _ := m.Update(keyText("/"))
+	assert.Equal(t, list.Filtering, updated.trackList.FilterState())
+	updated, _ = updated.Update(keyText("x"))
+
+	updated, _ = updated.Update(keyCode(tea.KeyEnter))
+	assert.False(t, updated.isDownloading)
+	assert.Equal(t, list.FilterApplied, updated.trackList.FilterState())
+}
+
+func TestDisabledPrimaryShortcutsKeepFocusOnTrackList(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.isDownloading = true
+
+	for _, shortcut := range []string{"D", "b"} {
+		updated, _ := m.Update(keyText(shortcut))
+		assert.Equal(t, viewList, updated.focusedView)
+	}
+
+	updated, _ := m.Update(keyCode(tea.KeyEnter))
+	assert.Equal(t, viewList, updated.focusedView)
 }
 
 func TestWindowResizeShrinksTrackListToAvailableHeight(t *testing.T) {
@@ -261,14 +365,146 @@ func TestWindowResizeKeepsRoomForFocusedActionBar(t *testing.T) {
 	assert.LessOrEqual(t, lipgloss.Height(updated.render()), 30)
 }
 
-func TestActionBarDoesNotRenderHotkeyHelp(t *testing.T) {
+func TestTrackListHeightStaysConstantAcrossStatuses(t *testing.T) {
 	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 9)
+	m.isDownloading = true
+	m.Resize(100, 30)
+
+	expectedHeight := m.trackList.Height()
+	updates := []struct {
+		status    TrackStatus
+		completed bool
+		format    string
+	}{
+		{status: TrackStatusDownloading},
+		{status: TrackStatusDownloaded, completed: true, format: "MP3"},
+		{status: TrackStatusAlreadyExists, completed: true},
+	}
+
+	for i, update := range updates {
+		updated, _ := m.Update(DownloadProgressUpdateMsg{
+			progress: TrackProgress{
+				uid:    m.tracksProgress[i].uid,
+				status: update.status,
+				format: update.format,
+			},
+			completed: update.completed,
+		})
+		m = updated
+
+		assert.Equal(t, expectedHeight, m.trackList.Height(), update.status.String())
+		assert.Equal(t, m.availableTrackListHeight(), m.trackList.Height(), update.status.String())
+	}
+}
+
+func TestStartingDownloadReflowsTrackList(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 1)
+	m.Resize(100, 30)
+	m.trackList.SetHeight(1)
+	m.focusedView = viewDownloadButton
+
+	updated, _ := m.activateFocusedControl()
+
+	assert.True(t, updated.isDownloading)
+	assert.Equal(t, updated.availableTrackListHeight(), updated.trackList.Height())
+}
+
+func TestActionBarRendersCommandHelp(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.trackList.SetWidth(200)
+	m.focusedView = viewDownloadButton
 
 	actionBar := renderActionBar(m)
+	plain := ansi.Strip(actionBar)
 
-	assert.NotContains(t, actionBar, "next")
-	assert.NotContains(t, actionBar, "move horizontally")
-	assert.NotContains(t, actionBar, "activate")
+	assert.Contains(t, plain, "tab tracks")
+	assert.Contains(t, plain, "esc tracks")
+	assert.Contains(t, plain, "select action")
+	assert.Contains(t, plain, "D Download all")
+	assert.Contains(t, plain, "more help")
+	assert.NotContains(t, plain, "select/download")
+	assert.NotContains(t, plain, "[ Download all ]")
+
+	m.focusedView = viewList
+	assert.Contains(t, ansi.Strip(renderActionBar(m)), "duplicates")
+}
+
+func TestDownloadAllShortcutUsesUppercaseD(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.trackList.SetWidth(200)
+
+	assert.Equal(t, []string{"D"}, downloadKeys.Download.Keys())
+	assert.Contains(t, ansi.Strip(renderActionBar(m)), "D Download all")
+
+	updated, cmd := m.Update(keyText("D"))
+	assert.True(t, updated.isDownloading)
+	assert.NotNil(t, cmd)
+
+	idle := NewDownloadModel(nil)
+	idle, _ = idle.Update(keyText("d"))
+	assert.False(t, idle.isDownloading)
+}
+
+func TestHelpToggleExpandsAndCollapsesCommandHelp(t *testing.T) {
+	m := NewDownloadModel(nil)
+	compactHeight := lipgloss.Height(renderActionBar(m))
+
+	updated, _ := m.Update(keyText("?"))
+	assert.True(t, updated.help.ShowAll)
+	assert.Greater(t, lipgloss.Height(renderActionBar(updated)), compactHeight)
+
+	updated, _ = updated.Update(keyText("?"))
+	assert.False(t, updated.help.ShowAll)
+}
+
+func TestActionBarFitsNarrowTerminalWidth(t *testing.T) {
+	m := NewDownloadModel(nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 18})
+	queueWidth := updated.trackList.Width() + updated.trackListStyle().GetHorizontalFrameSize()
+
+	for _, line := range strings.Split(ansi.Strip(renderActionBar(updated)), "\n") {
+		assert.LessOrEqual(t, lipgloss.Width(line), queueWidth)
+	}
+}
+
+func TestActionBarMatchesQueueWidthAndKeepsQuitTogether(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 1)
+	m.trackList.SetWidth(95)
+
+	actionBar := renderActionBar(m)
+	queueWidth := lipgloss.Width(m.renderTrackList())
+
+	assert.Equal(t, queueWidth, lipgloss.Width(actionBar))
+	for _, line := range strings.Split(ansi.Strip(actionBar), "\n") {
+		assert.LessOrEqual(t, lipgloss.Width(line), queueWidth)
+	}
+
+	for _, line := range strings.Split(ansi.Strip(actionBar), "\n") {
+		if strings.Contains(line, "ACTIONS") {
+			assert.Contains(t, line, "q Quit")
+		}
+	}
+}
+
+func TestActionBarUsesTheSameFullFrameAsTheTrackList(t *testing.T) {
+	m := NewDownloadModel(nil)
+	addReadyTracks(&m, 1)
+	m.trackList.SetWidth(95)
+
+	actionBar := ansi.Strip(renderActionBar(m))
+	for _, edge := range []string{
+		borderStyle.TopLeft,
+		borderStyle.TopRight,
+		borderStyle.BottomLeft,
+		borderStyle.BottomRight,
+		borderStyle.Left,
+		borderStyle.Right,
+	} {
+		assert.Contains(t, actionBar, edge)
+	}
 }
 
 func TestTabFocusDoesNotChangeTrackListHeight(t *testing.T) {
@@ -283,6 +519,9 @@ func TestTabFocusDoesNotChangeTrackListHeight(t *testing.T) {
 	assert.NotEqual(t, viewList, updated.focusedView)
 	assert.Equal(t, listHeight, updated.trackList.Height())
 	assert.LessOrEqual(t, lipgloss.Height(updated.render()), 30)
+
+	updated, _ = updated.Update(keyCode(tea.KeyTab))
+	assert.Equal(t, viewList, updated.focusedView)
 }
 
 func TestWindowResizeKeepsMinimumTrackListHeight(t *testing.T) {
@@ -640,6 +879,18 @@ func TestDownloadEndDoesNotQuitAfterCancelButtonRequest(t *testing.T) {
 	assert.False(t, updated.isDownloading)
 	assert.False(t, updated.shutdownRequested)
 	assert.Nil(t, cmd)
+}
+
+func TestDownloadEndReflowsTrackList(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.isDownloading = true
+	m.Resize(100, 30)
+	m.trackList.SetHeight(1)
+
+	updated, _ := m.Update(DownloadEndMsg{})
+
+	assert.False(t, updated.isDownloading)
+	assert.Equal(t, updated.availableTrackListHeight(), updated.trackList.Height())
 }
 
 func TestDownloadEndRestoresCanceledTracksToReady(t *testing.T) {

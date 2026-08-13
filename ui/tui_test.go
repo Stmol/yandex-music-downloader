@@ -46,6 +46,7 @@ func TestStartUiPassesDownloadOptions(t *testing.T) {
 
 func TestWindowSizeMsgIsStoredAndAppliedToChildModels(t *testing.T) {
 	m := StartUi(nil)
+	m.initState = UiStateDownloading
 
 	updatedModel, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	updated := updatedModel.(Model)
@@ -56,6 +57,7 @@ func TestWindowSizeMsgIsStoredAndAppliedToChildModels(t *testing.T) {
 	assert.Equal(t, 116, updated.sourceModel.urlInput.Width())
 	assert.Equal(t, 115, updated.downloadModel.trackList.Width())
 	assert.Equal(t, 115, updated.downloadModel.progress.Width())
+	assert.Equal(t, 38, updated.downloadModel.windowHeight)
 }
 
 func TestTokenOkAppliesStoredWindowSizeToSourceModel(t *testing.T) {
