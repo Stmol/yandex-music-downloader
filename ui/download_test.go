@@ -239,6 +239,13 @@ func TestWindowResizeRendersTrackListAcrossWindowWidth(t *testing.T) {
 	m := NewDownloadModel(nil)
 	addReadyTracks(&m, 40)
 
+	m.tracksProgress[0].status = TrackStatusAlreadyExists
+	m.tracksProgress[1].status = TrackStatusDownloaded
+	m.tracksProgress[1].format = "FLAC"
+	m.tracksProgress[2].status = TrackStatusDownloaded
+	m.tracksProgress[2].format = "MP3"
+	m.updateTrackList()
+
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	assert.Equal(t, 100, lipgloss.Width(updated.renderTrackList()))
