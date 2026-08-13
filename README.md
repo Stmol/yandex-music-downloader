@@ -81,6 +81,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 -   Upon valid URL input, the next screen displays a track listing with status indicators
 -   Use the action bar to choose a format for all tracks and run actions from one place
 -   Press `<Tab>` to move between the track list and controls; use arrow keys or `<H>`/`<J>`/`<K>`/`<L>` to move inside controls, `<Esc>` or `<Tab>` to return to the track list, and `<Enter>`/`<Space>` to select the focused control; press uppercase `<D>` to start `Download all` directly
+-   Press `<1>` or `<2>` to select MP3 or FLAC, `<b>` to go back, `<q>` to quit or cancel an active download, and `<?>` to toggle expanded command help
 -   Format selection applies to the whole current queue; individual tracks still fall back to MP3 when lossless is unavailable
 -   Depending on the source returned by Yandex Music, a lossless track may be saved as either `FLAC` or `M4A`
 -   Supported source URLs include tracks, albums, playlists, and Yandex Music charts

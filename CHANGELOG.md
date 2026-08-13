@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.12 - 2026-08-13
+- refactored the download queue around explicit per-session events, so progress counters stay scoped to the current run, unknown track IDs cannot corrupt state, and restarting `Download all` requeues eligible tracks consistently
+- unified MP3, FLAC, and M4A publication through a temporary artifact pipeline that streams MP3 responses into staging files, writes metadata before the final rename, publishes complete files atomically, and removes incomplete artifacts after failures
+- kept format-specific metadata rules in one publication path: MP3 and FLAC tags remain required before delivery, while M4A tagging remains best-effort without blocking a verified audio file
+- improved download diagnostics with streamed byte counts, sanitized response previews for text errors, injectable transports for HTTP tests, and clearer file-write failure stages
+- redesigned the terminal download screen with a unified action bar, clearer focus styling, responsive list sizing, width-safe status/title rendering, and expanded inline command help
+- added direct download-screen shortcuts for MP3/FLAC selection (`1`/`2`), `Download all` (`D`), back (`b`), quit or cancel (`q`), and expanded help (`?`), while preventing list `Enter` from activating an action
+- expanded regression coverage for session lifecycle, artifact publication and cleanup, streamed HTTP downloads, layout constraints, keyboard navigation, and concurrent state updates
+
 ## v1.11 - 2026-07-28
 - added M4A metadata writing for lossless `flac-mp4` downloads: title, artists, album, album artist, genre, year, track/disc numbers, Yandex Music source URL, and embedded JPEG/PNG cover art when available
 - create the required M4A metadata atom tree when a valid MP4/M4A has no initial `ilst`, so lossless Yandex Music files receive tags and cover art
