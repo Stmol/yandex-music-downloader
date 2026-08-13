@@ -148,6 +148,8 @@ func (c *Client) publishAudioArtifact(
 	return artifactPublishResult{Filename: destination, CoverFilename: cover.filename}, nil
 }
 
+var mp3Tagger artifactTagger = mp3ArtifactTagger{}
+
 type mp3ArtifactTagger struct{}
 
 func (mp3ArtifactTagger) Write(path string, metadata artifactMetadata) error {
@@ -180,7 +182,7 @@ func mp3ArtifactSpec() artifactSpec {
 		DownloadStage:      "download_file",
 		MetadataStage:      "id3_tags",
 		CompletionStage:    "id3_tags",
-		Tagger:             mp3ArtifactTagger{},
+		Tagger:             mp3Tagger,
 		FailurePolicy:      metadataRequired,
 		MetadataSuccessMsg: "ID3 metadata written",
 	}

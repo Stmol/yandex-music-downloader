@@ -97,6 +97,10 @@ func (c *HttpClient) SetToken(token string) {
 	c.headers["Authorization"] = fmt.Sprintf("OAuth %s", token)
 }
 
+func (c *HttpClient) SetTransport(rt http.RoundTripper) {
+	c.httpClient.Transport = rt
+}
+
 func (c *HttpClient) SetDownloadTimeout(timeout time.Duration) {
 	if timeout < 0 {
 		timeout = 0

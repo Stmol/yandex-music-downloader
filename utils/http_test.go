@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewHttpClient(t *testing.T) {
@@ -40,6 +41,41 @@ func TestSetDownloadTimeout(t *testing.T) {
 
 	client.SetDownloadTimeout(-1 * time.Second)
 	assert.Zero(t, client.downloadTimeout)
+}
+
+func TestSetTransport(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"result":"ok"}`))
+	}))
+	defer server.Close()
+
+	client := NewHttpClient()
+	client.SetTransport(&hostRewriteTransport{
+		targetHost: server.Listener.Addr().String(),
+		base:       http.DefaultTransport,
+	})
+
+	body, err := client.Get("https://api.music.yandex.net/test")
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "ok")
+}
+
+type hostRewriteTransport struct {
+	targetHost string
+	base       http.RoundTripper
+}
+
+func (t *hostRewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	cloned := req.Clone(req.Context())
+	cloned.URL.Scheme = "http"
+	cloned.URL.Host = t.targetHost
+	cloned.Host = t.targetHost
+
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(cloned)
 }
 
 func TestGet(t *testing.T) {

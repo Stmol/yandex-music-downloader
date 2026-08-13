@@ -396,38 +396,36 @@ func (c *Client) downloadTrackMP3(track model.Track, outputDir string, options D
 		return "", fmt.Errorf("failed to get download link: %w", err)
 	}
 
-	coverCh := c.startCoverDownload(track, filename, options)
-	if err := c.httpClient.DownloadFileWithContext(c.requestContext(trackCtx, "download_file", "download_mp3"), link, filename); err != nil {
-		cover := c.waitCoverDownload(trackCtx, coverCh)
-		if cover.filename != "" {
-			c.removeCoverFile(trackCtx, cover.filename)
-		}
-		c.logTrackFailure(trackCtx, "download_file", err,
-			"filename", filename,
-		)
-		return "", fmt.Errorf("failed to download file: %w", err)
-	}
+	result, err := c.publishAudioArtifact(
+		track,
+		filename,
+		options,
+		mp3ArtifactSpec(),
+		func(tempFilename string) error {
+			file, err := os.OpenFile(tempFilename, os.O_WRONLY|os.O_TRUNC, 0600)
+			if err != nil {
+				return fmt.Errorf("open MP3 temp file: %w", err)
+			}
 
-	cover := c.waitCoverDownload(trackCtx, coverCh)
-	if cover.filename != "" {
-		defer c.removeCoverFile(trackCtx, cover.filename)
-	}
-
-	if err := writeID3Tags(filename, track, cover.filename); err != nil {
-		c.logTrackFailure(trackCtx, "id3_tags", err,
-			"filename", filename,
-			"cover_filename", cover.filename,
-		)
-		return filename, fmt.Errorf("failed to write id3 tags: %w", err)
-	}
-
-	c.logTrack(slog.LevelInfo, trackCtx, "success",
-		"stage", "id3_tags",
-		"filename", filename,
-		"cover_filename", cover.filename,
+			written, downloadErr := c.httpClient.DownloadToWriterWithContext(
+				c.requestContext(trackCtx, "download_file", "download_mp3"),
+				link,
+				file,
+			)
+			closeErr := file.Close()
+			if downloadErr != nil {
+				return fmt.Errorf("failed to download file: %w", downloadErr)
+			}
+			if closeErr != nil {
+				return fmt.Errorf("close MP3 temp file after %d bytes: %w", written, closeErr)
+			}
+			return nil
+		},
 	)
-
-	return filename, nil
+	if err != nil {
+		return result.Filename, err
+	}
+	return result.Filename, nil
 }
 
 func (c *Client) downloadTrackLossless(track model.Track, outputDir string, options DownloadOptions) (string, error) {
