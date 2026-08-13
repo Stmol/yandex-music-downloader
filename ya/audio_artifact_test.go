@@ -10,6 +10,9 @@ import (
 	"ya-music/utils"
 	"ya-music/ya/model"
 
+	"github.com/bogem/id3v2/v2"
+	"github.com/go-flac/flacvorbis"
+	flac "github.com/go-flac/go-flac"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -412,4 +415,207 @@ func TestPublishAudioArtifactContinuesWhenCoverDownloadFails(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 
 	assertNoArtifactTempFiles(t, dir)
+}
+
+func testArtifactTrack() model.Track {
+	return model.Track{
+		ID:      model.FlexibleID("123"),
+		Title:   "Song",
+		Version: "Live",
+		Artists: []model.Artist{{Name: "Artist A"}, {Name: "Artist B"}},
+		Albums: []model.Album{{
+			ID:    model.FlexibleID("456"),
+			Title: "Album",
+			Genre: "indie",
+			Year:  2025,
+			TrackPosition: model.TrackPosition{
+				Index: 3,
+			},
+		}},
+	}
+}
+
+func TestAudioArtifactMp3TaggerWritesID3Tags(t *testing.T) {
+	dir := t.TempDir()
+	mp3Path := filepath.Join(dir, "track.mp3")
+	coverPath := filepath.Join(dir, "cover.png")
+	require.NoError(t, os.WriteFile(mp3Path, []byte("audio payload"), 0644))
+	require.NoError(t, os.WriteFile(coverPath, tinyPNG, 0644))
+
+	track := testArtifactTrack()
+	tagger := mp3ArtifactTagger{}
+	require.NoError(t, tagger.Write(mp3Path, artifactMetadata{Track: track, CoverPath: coverPath}))
+
+	tag, err := id3v2.Open(mp3Path, id3v2.Options{Parse: true})
+	require.NoError(t, err)
+	defer tag.Close()
+
+	assert.Equal(t, "Song Live", tag.Title())
+	assert.Equal(t, "Artist A, Artist B", tag.Artist())
+	assert.Equal(t, "Album", tag.Album())
+	assert.Len(t, tag.GetFrames(tag.CommonID("Attached picture")), 1)
+}
+
+func TestAudioArtifactMp3TaggerReturnsWriteID3TagsError(t *testing.T) {
+	tagger := mp3ArtifactTagger{}
+	missing := filepath.Join(t.TempDir(), "missing.mp3")
+
+	err := tagger.Write(missing, artifactMetadata{Track: model.Track{Title: "Song"}})
+	want := writeID3Tags(missing, model.Track{Title: "Song"}, "")
+	require.Error(t, err)
+	assert.Equal(t, want.Error(), err.Error())
+}
+
+func TestAudioArtifactFlacTaggerWritesFLACTags(t *testing.T) {
+	dir := t.TempDir()
+	flacPath := filepath.Join(dir, "track.flac")
+	coverPath := filepath.Join(dir, "cover.png")
+	require.NoError(t, os.WriteFile(flacPath, minimalFLACBytes(), 0644))
+	require.NoError(t, os.WriteFile(coverPath, onePixelPNG(), 0644))
+
+	track := testArtifactTrack()
+	tagger := flacArtifactTagger{}
+	require.NoError(t, tagger.Write(flacPath, artifactMetadata{Track: track, CoverPath: coverPath}))
+
+	file, err := flac.ParseFile(flacPath)
+	require.NoError(t, err)
+
+	var comments *flacvorbis.MetaDataBlockVorbisComment
+	var hasPicture bool
+	for _, block := range file.Meta {
+		switch block.Type {
+		case flac.VorbisComment:
+			comments, err = flacvorbis.ParseFromMetaDataBlock(*block)
+			require.NoError(t, err)
+		case flac.Picture:
+			hasPicture = true
+		}
+	}
+
+	require.NotNil(t, comments)
+	assertFLACComment(t, comments, "TITLE", "Song Live")
+	assertFLACComment(t, comments, "ALBUM", "Album")
+	assert.True(t, hasPicture)
+}
+
+func TestAudioArtifactFlacTaggerReturnsWriteFLACTagsError(t *testing.T) {
+	tagger := flacArtifactTagger{}
+	missing := filepath.Join(t.TempDir(), "missing.flac")
+
+	err := tagger.Write(missing, artifactMetadata{Track: model.Track{Title: "Song"}})
+	want := writeFLACTags(missing, model.Track{Title: "Song"}, "")
+	require.Error(t, err)
+	assert.Equal(t, want.Error(), err.Error())
+}
+
+func TestAudioArtifactM4aTaggerDelegatesToClientM4ATagger(t *testing.T) {
+	client := NewClient(utils.NewHttpClient())
+	recorder := &recordingM4ATagger{}
+	client.m4aTagger = recorder
+
+	track := testArtifactTrack()
+	album := *firstAlbum(track)
+	coverPath := filepath.Join(t.TempDir(), "cover.png")
+	require.NoError(t, os.WriteFile(coverPath, onePixelPNG(), 0644))
+
+	tagger := m4aArtifactTagger{client: client}
+	path := "/tmp/track.m4a"
+	require.NoError(t, tagger.Write(path, artifactMetadata{Track: track, CoverPath: coverPath}))
+
+	require.Equal(t, 1, recorder.calls)
+	assert.Equal(t, []string{path}, recorder.paths)
+	assert.Equal(t, m4aTagInputForTrack(track, album, "image/png", onePixelPNG()), recorder.lastTags)
+}
+
+func TestAudioArtifactM4aTaggerCoverHandling(t *testing.T) {
+	track := testArtifactTrack()
+	album := *firstAlbum(track)
+	client := NewClient(utils.NewHttpClient())
+	path := "/tmp/track.m4a"
+
+	t.Run("png cover", func(t *testing.T) {
+		recorder := &recordingM4ATagger{}
+		client.m4aTagger = recorder
+		coverPath := filepath.Join(t.TempDir(), "cover.png")
+		require.NoError(t, os.WriteFile(coverPath, onePixelPNG(), 0644))
+
+		tagger := m4aArtifactTagger{client: client}
+		require.NoError(t, tagger.Write(path, artifactMetadata{Track: track, CoverPath: coverPath}))
+
+		assert.Equal(t, "image/png", recorder.lastTags.CoverMIME)
+		assert.Equal(t, onePixelPNG(), recorder.lastTags.CoverData)
+	})
+
+	t.Run("jpeg cover", func(t *testing.T) {
+		recorder := &recordingM4ATagger{}
+		client.m4aTagger = recorder
+		coverPath := filepath.Join(t.TempDir(), "cover.jpg")
+		require.NoError(t, os.WriteFile(coverPath, onePixelJPEG(), 0644))
+
+		tagger := m4aArtifactTagger{client: client}
+		require.NoError(t, tagger.Write(path, artifactMetadata{Track: track, CoverPath: coverPath}))
+
+		assert.Equal(t, "image/jpeg", recorder.lastTags.CoverMIME)
+		assert.Equal(t, onePixelJPEG(), recorder.lastTags.CoverData)
+	})
+
+	t.Run("missing cover", func(t *testing.T) {
+		recorder := &recordingM4ATagger{}
+		client.m4aTagger = recorder
+
+		tagger := m4aArtifactTagger{client: client}
+		require.NoError(t, tagger.Write(path, artifactMetadata{Track: track, CoverPath: ""}))
+
+		want := m4aTagInputForTrack(track, album, "", nil)
+		assert.Equal(t, want, recorder.lastTags)
+		assert.Empty(t, recorder.lastTags.CoverMIME)
+		assert.Empty(t, recorder.lastTags.CoverData)
+	})
+}
+
+func TestAudioArtifactMp3Spec(t *testing.T) {
+	spec := mp3ArtifactSpec()
+
+	assert.Equal(t, "mp3", spec.Format)
+	assert.Equal(t, "download_file", spec.DownloadStage)
+	assert.Equal(t, "id3_tags", spec.MetadataStage)
+	assert.Equal(t, "id3_tags", spec.CompletionStage)
+	assert.Equal(t, metadataRequired, spec.FailurePolicy)
+	assert.Equal(t, "ID3 metadata written", spec.MetadataSuccessMsg)
+	assert.Empty(t, spec.MetadataSkipMsg)
+	require.NotNil(t, spec.Tagger)
+	_, ok := spec.Tagger.(mp3ArtifactTagger)
+	assert.True(t, ok)
+}
+
+func TestAudioArtifactFlacSpec(t *testing.T) {
+	spec := flacArtifactSpec()
+
+	assert.Equal(t, "flac", spec.Format)
+	assert.Equal(t, "download_file", spec.DownloadStage)
+	assert.Equal(t, "flac_tags", spec.MetadataStage)
+	assert.Equal(t, "lossless_complete", spec.CompletionStage)
+	assert.Equal(t, metadataRequired, spec.FailurePolicy)
+	assert.Equal(t, "FLAC metadata written", spec.MetadataSuccessMsg)
+	assert.Empty(t, spec.MetadataSkipMsg)
+	require.NotNil(t, spec.Tagger)
+	_, ok := spec.Tagger.(flacArtifactTagger)
+	assert.True(t, ok)
+}
+
+func TestAudioArtifactM4aSpec(t *testing.T) {
+	client := NewClient(utils.NewHttpClient())
+	spec := client.m4aArtifactSpec()
+
+	assert.Equal(t, "m4a", spec.Format)
+	assert.Equal(t, "download_file", spec.DownloadStage)
+	assert.Equal(t, "m4a_tags", spec.MetadataStage)
+	assert.Equal(t, "lossless_complete", spec.CompletionStage)
+	assert.Equal(t, metadataBestEffort, spec.FailurePolicy)
+	assert.Equal(t, "M4A metadata written", spec.MetadataSuccessMsg)
+	assert.Equal(t, "M4A metadata skipped; keeping audio", spec.MetadataSkipMsg)
+	require.NotNil(t, spec.Tagger)
+	taggers, ok := spec.Tagger.(m4aArtifactTagger)
+	require.True(t, ok)
+	assert.Same(t, client, taggers.client)
 }

@@ -147,3 +147,66 @@ func (c *Client) publishAudioArtifact(
 	)
 	return artifactPublishResult{Filename: destination, CoverFilename: cover.filename}, nil
 }
+
+type mp3ArtifactTagger struct{}
+
+func (mp3ArtifactTagger) Write(path string, metadata artifactMetadata) error {
+	return writeID3Tags(path, metadata.Track, metadata.CoverPath)
+}
+
+type flacArtifactTagger struct{}
+
+func (flacArtifactTagger) Write(path string, metadata artifactMetadata) error {
+	return writeFLACTags(path, metadata.Track, metadata.CoverPath)
+}
+
+type m4aArtifactTagger struct {
+	client *Client
+}
+
+func (t m4aArtifactTagger) Write(path string, metadata artifactMetadata) error {
+	var album model.Album
+	if first := firstAlbum(metadata.Track); first != nil {
+		album = *first
+	}
+	coverMIME, coverData, _ := readM4ACoverData(metadata.CoverPath)
+	tags := m4aTagInputForTrack(metadata.Track, album, coverMIME, coverData)
+	return t.client.m4aTags().Write(path, tags)
+}
+
+func mp3ArtifactSpec() artifactSpec {
+	return artifactSpec{
+		Format:             "mp3",
+		DownloadStage:      "download_file",
+		MetadataStage:      "id3_tags",
+		CompletionStage:    "id3_tags",
+		Tagger:             mp3ArtifactTagger{},
+		FailurePolicy:      metadataRequired,
+		MetadataSuccessMsg: "ID3 metadata written",
+	}
+}
+
+func flacArtifactSpec() artifactSpec {
+	return artifactSpec{
+		Format:             "flac",
+		DownloadStage:      "download_file",
+		MetadataStage:      "flac_tags",
+		CompletionStage:    "lossless_complete",
+		Tagger:             flacArtifactTagger{},
+		FailurePolicy:      metadataRequired,
+		MetadataSuccessMsg: "FLAC metadata written",
+	}
+}
+
+func (c *Client) m4aArtifactSpec() artifactSpec {
+	return artifactSpec{
+		Format:             "m4a",
+		DownloadStage:      "download_file",
+		MetadataStage:      "m4a_tags",
+		CompletionStage:    "lossless_complete",
+		Tagger:             m4aArtifactTagger{client: c},
+		FailurePolicy:      metadataBestEffort,
+		MetadataSuccessMsg: "M4A metadata written",
+		MetadataSkipMsg:    "M4A metadata skipped; keeping audio",
+	}
+}
