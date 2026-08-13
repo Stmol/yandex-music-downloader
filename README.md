@@ -3,8 +3,7 @@
 A GUI application for downloading tracks from the Yandex Music streaming service.
 
 <div align="center">
-  <img src="assets/img_all_tracks_ready.png" title="all tracks ready" alt="all tracks ready" width="49%" />
-  <img src="assets/img_tracks_downloading.png" title="tracks downloading" alt="tracks downloading" width="49%" />
+  <img src="assets/img_tracks_downloading.png" title="tracks downloading" alt="tracks downloading" width="100%" />
 </div>
 
 ⚠️  This is an unofficial application and is not affiliated with Yandex or its services.
