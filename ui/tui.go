@@ -62,6 +62,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.windowWidth = msg.Width
 		m.windowHeight = msg.Height
 		m.resizeToWindow()
+		return m, nil
 
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {

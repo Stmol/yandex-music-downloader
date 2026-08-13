@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	selectedItemStyle = lipgloss.NewStyle().Background(lipgloss.Color("170"))
+	selectedItemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFF7FF")).Background(focusSurfaceColor)
 	emptyItemStyle    = lipgloss.NewStyle()
 
 	// Unselected styles
@@ -22,8 +22,8 @@ var (
 	descriptionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 
 	// Selected styles
-	selectedTrackNumberStyle      = lipgloss.NewStyle().PaddingLeft(2).Background(lipgloss.Color("170"))
-	selectedTrackDescriptionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Background(lipgloss.Color("170"))
+	selectedTrackNumberStyle      = lipgloss.NewStyle().Foreground(accentColor).PaddingLeft(2).Background(focusSurfaceColor)
+	selectedTrackDescriptionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#B7AEBB")).Background(focusSurfaceColor)
 
 	// Status styles for unselected items
 	readyStatusStyle         = greenForeground
