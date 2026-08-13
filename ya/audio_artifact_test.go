@@ -346,6 +346,35 @@ func TestPublishAudioArtifactCleansTempOnRenameFailure(t *testing.T) {
 	assertNoArtifactTempFiles(t, dir)
 }
 
+func TestPublishAudioArtifactFailsWhenCreateTempFails(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0555))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0755) })
+
+	destination := filepath.Join(dir, "track.mp3")
+	track := model.Track{ID: model.FlexibleID("1"), Title: "Song"}
+	tagger := &recordingArtifactTagger{}
+	client := NewClient(utils.NewHttpClient())
+
+	result, err := client.publishAudioArtifact(
+		track,
+		destination,
+		DownloadOptions{SkipCover: true},
+		testArtifactSpec(tagger, metadataRequired),
+		writeAudioBytes(testAudioPayload),
+	)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "error creating artifact temp file")
+	assert.Empty(t, result.Filename)
+	assert.Empty(t, tagger.paths)
+
+	_, statErr := os.Stat(destination)
+	assert.True(t, os.IsNotExist(statErr))
+
+	assertNoArtifactTempFiles(t, dir)
+}
+
 func TestPublishAudioArtifactContinuesWhenCoverDownloadFails(t *testing.T) {
 	dir := t.TempDir()
 	destination := filepath.Join(dir, "track.mp3")
