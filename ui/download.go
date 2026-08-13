@@ -1,14 +1,10 @@
 package ui
 
 import (
-	"errors"
 	"fmt"
-	"log/slog"
 	"path/filepath"
-	"runtime/debug"
 	"sort"
 	"strings"
-	"sync"
 	"ya-music/utils"
 	"ya-music/ya"
 	"ya-music/ya/model"
@@ -116,20 +112,14 @@ type downloadKeyMap struct {
 	Duplicates key.Binding
 }
 
-// TrackProgress represents the download progress and state of a track.
-type TrackProgress struct {
-	uid      string
-	track    *model.Track
-	status   TrackStatus
-	errMsg   string
-	filename string
-	format   string
+type DownloadEndMsg struct{}
+type downloadSessionStartedMsg struct {
+	events <-chan DownloadSessionEvent
 }
 
-type DownloadStartMsg struct{}
-type DownloadEndMsg struct{}
 type DownloadProgressUpdateMsg struct {
-	downloaded bool
+	progress  TrackProgress
+	completed bool
 }
 
 type DownloadModel struct {
@@ -142,15 +132,16 @@ type DownloadModel struct {
 	progress  progress.Model
 	trackList list.Model
 
-	// Download progress channels and tracking.
-	tpUpdateCh     chan TrackProgress
+	// Download progress channel and tracking.
+	sessionEvents  <-chan DownloadSessionEvent
 	tracksProgress []*TrackProgress
 
 	// Counters.
-	tracksTotalCount  int
-	downloadedCount   int
-	downloadableCount int
-	errorCount        int
+	tracksTotalCount      int
+	downloadedCount       int
+	downloadableCount     int
+	sessionCompletedCount int
+	errorCount            int
 
 	// UI state.
 	isDownloading     bool
@@ -218,10 +209,11 @@ func (m DownloadModel) Init() tea.Cmd {
 
 func (m *DownloadModel) Reset() {
 	m.tracksProgress = nil
-	m.tpUpdateCh = nil
+	m.sessionEvents = nil
 	m.tracksTotalCount = 0
 	m.downloadedCount = 0
 	m.downloadableCount = 0
+	m.sessionCompletedCount = 0
 	m.errorCount = 0
 	m.isDownloading = false
 	m.shutdownRequested = false
@@ -323,17 +315,21 @@ func (m *DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 			m.resizeToWindow()
 		}
 
-	case DownloadStartMsg:
+	case downloadSessionStartedMsg:
+		m.sessionEvents = msg.events
 		m.updateTrackList()
-		cmd = handleDownloadsProgress(m.tpUpdateCh)
+		cmd = nextDownloadSessionEvent(m.sessionEvents)
 
 	case DownloadProgressUpdateMsg:
-		if msg.downloaded {
-			m.downloadedCount++
+		if m.applyProgress(msg.progress) {
+			if msg.completed {
+				m.downloadedCount++
+				m.sessionCompletedCount++
+			}
+			m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
+			m.updateTrackList()
 		}
-		m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
-		m.updateTrackList()
-		cmd = handleDownloadsProgress(m.tpUpdateCh)
+		cmd = nextDownloadSessionEvent(m.sessionEvents)
 
 	case DownloadEndMsg:
 		m.isDownloading = false
@@ -344,6 +340,7 @@ func (m *DownloadModel) Update(msg tea.Msg) (DownloadModel, tea.Cmd) {
 				m.client.ResetCancel()
 			}
 		}
+		m.sessionEvents = nil
 		if m.quitAfterCancel {
 			m.quitAfterCancel = false
 			return *m, tea.Quit
@@ -435,110 +432,29 @@ func (m *DownloadModel) cycleFocus() {
 	m.focusNext()
 }
 
-func (m *DownloadModel) downloadTracks(updCh chan TrackProgress, progressList []*TrackProgress) tea.Cmd {
+func (m DownloadModel) startDownloadSession() tea.Cmd {
+	progress := make([]TrackProgress, 0, len(m.tracksProgress))
+	for _, item := range m.tracksProgress {
+		progress = append(progress, *item)
+	}
+	client := m.client
+	logger := downloadLogger(client)
+	options := m.downloadOptions
+
 	return func() tea.Msg {
-		var wg sync.WaitGroup
-		sem := make(chan struct{}, maxConcurrentDownloads)
-
-		logger := downloadLogger(m.client)
-		logger.Info("download session started",
-			"total_tracks", len(progressList),
-			"max_concurrent_downloads", maxConcurrentDownloads,
-			"format", m.downloadOptions.FormatOrDefault(),
-		)
-
-		for _, tp := range progressList {
-			if reason, shouldSkip := skipDownloadReason(tp.status); shouldSkip {
-				logger.LogTrack(slog.LevelInfo, utils.NewTrackLogContext(*tp.track), "skipped",
-					"stage", "queue",
-					"reason", reason,
-				)
-				continue
-			}
-
-			logger.LogTrack(slog.LevelInfo, utils.NewTrackLogContext(*tp.track), "queued",
-				"stage", "queue",
-			)
-			wg.Add(1)
-			go m.downloadTrack(tp, &wg, sem, updCh)
-		}
-
-		go func() {
-			wg.Wait()
-			logger.Info("download session finished")
-			close(updCh)
-		}()
-
-		return DownloadStartMsg{}
+		session := NewDownloadSession(client, logger, options, outputDir)
+		return downloadSessionStartedMsg{events: session.Run(progress)}
 	}
 }
 
-func (m *DownloadModel) downloadTrack(tp *TrackProgress, wg *sync.WaitGroup, sem chan struct{}, updCh chan TrackProgress) {
-	defer wg.Done()
-	logger := downloadLogger(m.client)
-	trackCtx := utils.NewTrackLogContext(*tp.track)
-
-	defer func() {
-		if r := recover(); r != nil {
-			tp.status = TrackStatusError
-			tp.errMsg = fmt.Sprintf("panic: %v", r)
-			logger.LogTrack(slog.LevelError, trackCtx, "panic recovered",
-				"stage", "download_track",
-				"error", fmt.Sprintf("%v", r),
-				"stack", string(debug.Stack()),
-			)
-			updCh <- *tp
+func (m *DownloadModel) applyProgress(progress TrackProgress) bool {
+	for _, current := range m.tracksProgress {
+		if current.uid == progress.uid {
+			*current = progress
+			return true
 		}
-	}()
-
-	sem <- struct{}{}
-	defer func() { <-sem }()
-
-	tp.status = TrackStatusDownloading
-	logger.LogTrack(slog.LevelInfo, trackCtx, "worker started",
-		"stage", "download_track",
-	)
-	updCh <- *tp
-
-	filePath, err := m.client.DownloadTrackWithOptions(*tp.track, outputDir, m.downloadOptions)
-	if err != nil {
-		tp.status = TrackStatusError
-		tp.errMsg = err.Error()
-		tp.filename = filePath
-
-		if errors.Is(err, ya.ErrTrackAlreadyExists) {
-			tp.status = TrackStatusAlreadyExists
-			tp.format = downloadFormatFromFilename(filePath)
-			logger.LogTrack(slog.LevelInfo, trackCtx, "worker skipped",
-				"stage", "download_track",
-				"status", tp.status.String(),
-				"filename", filePath,
-				"reason", "already_exists",
-			)
-			updCh <- *tp
-			return
-		}
-
-		logger.LogTrack(slog.LevelError, trackCtx, "worker finished with error",
-			"stage", "download_track",
-			"status", tp.status.String(),
-			"filename", filePath,
-			"error", err,
-		)
-	} else {
-		tp.status = TrackStatusDownloaded
-		tp.filename = filePath
-		tp.format = downloadFormatFromFilename(filePath)
-		tp.errMsg = ""
-
-		logger.LogTrack(slog.LevelInfo, trackCtx, "worker finished",
-			"stage", "download_track",
-			"status", tp.status.String(),
-			"filename", filePath,
-		)
 	}
-
-	updCh <- *tp
+	return false
 }
 
 func (m *DownloadModel) resetState() {
@@ -550,9 +466,10 @@ func (m *DownloadModel) resetState() {
 		tp.format = ""
 	}
 
-	m.downloadedCount = countStatus(m.tracksProgress, TrackStatusDownloaded)
+	m.downloadedCount = completedTrackCount(m.tracksProgress)
 	m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
 	m.downloadableCount = countStatus(m.tracksProgress, TrackStatusReady)
+	m.sessionCompletedCount = 0
 	m.tracksTotalCount = len(m.tracksProgress)
 
 	m.updateTrackList()
@@ -596,11 +513,19 @@ func (m *DownloadModel) getTrackInfo(uid string) string {
 }
 
 func (m DownloadModel) renderProgress() string {
-	var percent float64
-	if m.downloadableCount > 0 {
-		percent = float64(m.downloadedCount) / float64(m.downloadableCount)
+	return m.progress.ViewAs(m.sessionProgress())
+}
+
+func (m DownloadModel) sessionProgress() float64 {
+	if m.downloadableCount <= 0 {
+		return 0
 	}
-	return m.progress.ViewAs(percent)
+
+	percent := float64(m.sessionCompletedCount) / float64(m.downloadableCount)
+	if percent > 1 {
+		return 1
+	}
+	return percent
 }
 
 func countStatus(tracks []*TrackProgress, status TrackStatus) int {
@@ -611,6 +536,11 @@ func countStatus(tracks []*TrackProgress, status TrackStatus) int {
 		}
 	}
 	return count
+}
+
+func completedTrackCount(tracks []*TrackProgress) int {
+	return countStatus(tracks, TrackStatusDownloaded) +
+		countStatus(tracks, TrackStatusAlreadyExists)
 }
 
 func renderHeader(completed, total, downloadable, errors int) string {
@@ -650,10 +580,9 @@ func (m *DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 		m.isDownloading = true
 		m.resetState()
 		m.focusedView = viewList
-		m.tpUpdateCh = make(chan TrackProgress)
 
 		utils.CreateDirIfNotExists(outputDir)
-		return *m, m.downloadTracks(m.tpUpdateCh, m.tracksProgress)
+		return *m, m.startDownloadSession()
 
 	case viewQuitButton:
 		if m.isDownloading {
@@ -843,16 +772,15 @@ func quitControlLabel(m DownloadModel) string {
 	return "Quit"
 }
 
-func handleDownloadsProgress(updCh chan TrackProgress) tea.Cmd {
+func nextDownloadSessionEvent(events <-chan DownloadSessionEvent) tea.Cmd {
 	return func() tea.Msg {
-		track, ok := <-updCh
+		event, ok := <-events
 		if !ok {
 			return DownloadEndMsg{}
 		}
 		return DownloadProgressUpdateMsg{
-			downloaded: track.status == TrackStatusDownloaded ||
-				track.status == TrackStatusAlreadyExists ||
-				track.status == TrackStatusError,
+			progress:  event.Progress,
+			completed: event.Completed,
 		}
 	}
 }
@@ -892,8 +820,6 @@ func skipDownloadReason(status TrackStatus) (string, bool) {
 		return "duplicate", true
 	case TrackStatusNotAvailable:
 		return "not_available", true
-	case TrackStatusAlreadyExists:
-		return "already_exists", true
 	default:
 		return "", false
 	}
@@ -941,9 +867,10 @@ func (m *DownloadModel) normalizeCanceledTracks() {
 		}
 	}
 
-	m.downloadedCount = countStatus(m.tracksProgress, TrackStatusDownloaded)
+	m.downloadedCount = completedTrackCount(m.tracksProgress)
 	m.errorCount = countStatus(m.tracksProgress, TrackStatusError)
 	m.downloadableCount = countStatus(m.tracksProgress, TrackStatusReady)
+	m.sessionCompletedCount = 0
 	m.tracksTotalCount = len(m.tracksProgress)
 	m.updateTrackList()
 }

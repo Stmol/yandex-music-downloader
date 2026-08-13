@@ -7,3 +7,5 @@ dl_logs.txt
 
 .DS_Store
 .gocache/
+.superpowers/
+docs/
