@@ -108,8 +108,9 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 -   Completed tracks show the actual saved format in the status column, for example `✅ FLAC`, `✅ M4A`, or `✅ MP3`
 -   If you stop an active queue, interrupted tracks are returned to `Ready` so you can restart the download cleanly
 -   If needed, you can relaunch the app with `--timeout <seconds>` to limit how long a single file download may take
--   By default, each MP3, FLAC, or M4A file is tagged with title, artist, album metadata, Yandex track URL/source metadata, and embedded JPEG/PNG cover art when available
--   M4A tagging covers native MP4/M4A containers only. The downloader creates the required M4A metadata structure even when Yandex Music returns a valid file without initial tags; damaged M4A files are not repaired. If optional M4A metadata writing fails, the audio file is still saved and the CLI logs a warning
+-   By default, each MP3, FLAC, or M4A file is tagged with title, artist, album metadata, and Yandex track URL/source metadata. Cover art is optional: when available it is embedded during tagging and the temporary cover file is removed after download
+-   MP3 and FLAC of that format are published only after tags are written successfully. If tagging fails, that format is not left in the download folder; in lossless mode a FLAC tagging failure still falls back to MP3
+-   M4A tagging covers native MP4/M4A containers only. The downloader creates the required M4A metadata structure even when Yandex Music returns a valid file without initial tags; damaged M4A files are not repaired. M4A is published even when optional metadata writing fails—the CLI logs a warning and the audio file is still saved
 -   If cover downloads are slow or expensive, relaunch with `--skip-cover=true`; text tags will still be written
 
 ![downloading](assets/img_download_in_progress.png)
@@ -118,7 +119,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 
 -   The progress bar fills completely upon download completion
 -   Downloaded tracks are available in the `./downloads` directory
--   A track is marked as completed after the audio file is saved. For MP3 and FLAC, metadata tags are written before completion; for M4A, metadata is best-effort and tagging failures do not block delivery. Cover download failures are ignored so they do not block the track
+-   A track is marked as completed after the audio file is saved. For MP3 and FLAC of that format, tagging must succeed before the file appears in `./downloads`; in lossless mode a FLAC tagging failure still falls back to MP3. For M4A, metadata is best-effort and tagging failures do not block delivery. Cover download failures are ignored so they do not block the track
 
 ![download complete](assets/img_download_complete.png)
 

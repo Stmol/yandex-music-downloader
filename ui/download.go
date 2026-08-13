@@ -15,6 +15,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 )
 
@@ -421,11 +422,25 @@ func (m DownloadModel) trackListStyle() lipgloss.Style {
 }
 
 func (m DownloadModel) renderTrackList() string {
-	content := m.trackList.View()
+	content := capLinesToWidth(m.trackList.View(), m.trackList.Width())
 	if missingRows := m.trackList.Height() - lipgloss.Height(content); missingRows > 0 {
 		content += strings.Repeat("\n ", missingRows)
 	}
 	return m.trackListStyle().Render(content)
+}
+
+func capLinesToWidth(content string, width int) string {
+	if width <= 0 || content == "" {
+		return content
+	}
+
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		if ansi.StringWidth(line) > width {
+			lines[i] = ansi.Truncate(line, width, "")
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *DownloadModel) cycleFocus() {

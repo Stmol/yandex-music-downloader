@@ -119,21 +119,22 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 	title := item.Title()
 	desc := item.Description()
 
-	statusStr := fmt.Sprintf("%-*s", trackStatusColumnWidth, item.statusLabel())
+	statusPlain := formatStatusColumn(item.statusLabel())
+	statusStr := statusPlain
 
 	switch item.status {
 	case TrackStatusDuplicate:
-		statusStr = duplicateStatusStyle.Render(statusStr)
+		statusStr = duplicateStatusStyle.Render(statusPlain)
 	case TrackStatusDownloaded:
-		statusStr = downloadedStatusStyle.Render(statusStr)
+		statusStr = downloadedStatusStyle.Render(statusPlain)
 	case TrackStatusError:
-		statusStr = errorStatusStyle.Render(statusStr)
+		statusStr = errorStatusStyle.Render(statusPlain)
 	case TrackStatusNotAvailable:
-		statusStr = notAvailableStatusStyle.Render(statusStr)
+		statusStr = notAvailableStatusStyle.Render(statusPlain)
 	case TrackStatusAlreadyExists:
-		statusStr = alreadyExistsStatusStyle.Render(statusStr)
+		statusStr = alreadyExistsStatusStyle.Render(statusPlain)
 	case TrackStatusReady:
-		statusStr = readyStatusStyle.Render(statusStr)
+		statusStr = readyStatusStyle.Render(statusPlain)
 	}
 
 	isSelected := index == m.Index()
@@ -153,29 +154,29 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 		titleStyleToUse = selectedItemStyle
 		paddingStyleToUse = selectedItemStyle
 		descStyleToUse = selectedTrackDescriptionStyle
+		statusStr = selectedItemStyle.Render(statusPlain)
 	}
 
-	if isSelected {
-		statusStr = fmt.Sprintf("%-*s", trackStatusColumnWidth, item.statusLabel())
-		statusStr = selectedItemStyle.Render(statusStr)
-	}
+	trackNumberRendered := trackNumberStyleToUse.Render(trackNumber)
+	numberWidth := lipgloss.Width(trackNumberRendered)
+	statusWidth := trackStatusColumnWidth
 
-	textWidth := m.Width() - lipgloss.Width(trackNumberStyleToUse.Render(trackNumber)) - trackStatusColumnWidth
-	if textWidth < minTrackTextWidth {
-		textWidth = minTrackTextWidth
+	textWidth := m.Width() - numberWidth - statusWidth
+	if textWidth < 0 {
+		textWidth = 0
 	}
 
 	combined := trackText(title, desc)
 	displayText := truncateToWidth(combined, textWidth)
 	titlePart, descPart := splitTrackText(displayText, title)
-	paddingWidth := m.Width() - lipgloss.Width(trackNumberStyleToUse.Render(trackNumber)) - lipgloss.Width(displayText) - trackStatusColumnWidth
+	paddingWidth := m.Width() - numberWidth - lipgloss.Width(displayText) - statusWidth
 	if paddingWidth < 0 {
 		paddingWidth = 0
 	}
 	padding := strings.Repeat(" ", paddingWidth)
 
 	str := fmt.Sprintf("%s%s%s%s%s",
-		trackNumberStyleToUse.Render(trackNumber),
+		trackNumberRendered,
 		titleStyleToUse.Render(titlePart),
 		descStyleToUse.Render(descPart),
 		paddingStyleToUse.Render(padding),
@@ -185,10 +186,19 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 	fmt.Fprint(w, str)
 }
 
-const (
-	trackStatusColumnWidth = 15
-	minTrackTextWidth      = 10
-)
+const trackStatusColumnWidth = 15
+
+func formatStatusColumn(label string) string {
+	return padToWidth(truncateToWidth(label, trackStatusColumnWidth), trackStatusColumnWidth)
+}
+
+func padToWidth(s string, width int) string {
+	current := runewidth.StringWidth(s)
+	if current >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-current)
+}
 
 func trackText(title, desc string) string {
 	if desc == "" {

@@ -97,6 +97,10 @@ func (c *HttpClient) SetToken(token string) {
 	c.headers["Authorization"] = fmt.Sprintf("OAuth %s", token)
 }
 
+func (c *HttpClient) SetTransport(rt http.RoundTripper) {
+	c.httpClient.Transport = rt
+}
+
 func (c *HttpClient) SetDownloadTimeout(timeout time.Duration) {
 	if timeout < 0 {
 		timeout = 0
@@ -267,67 +271,131 @@ func (c *HttpClient) DownloadBytesWithContext(reqCtx RequestLogContext, url stri
 	return body, nil
 }
 
+func (c *HttpClient) DownloadToWriterWithContext(reqCtx RequestLogContext, url string, writer io.Writer) (int64, error) {
+	return c.downloadResponseToWriter(reqCtx, url, writer, "")
+}
+
 func (c *HttpClient) DownloadFileWithContext(reqCtx RequestLogContext, url, filepath string) error {
+	out, err := c.createTempDownloadFile(filepath)
+	if err != nil {
+		return fmt.Errorf("error creating file: %w", err)
+	}
+	tempPath := out.Name()
+	cleanupTempFile := true
+	defer func() {
+		if out != nil {
+			_ = out.Close()
+		}
+		if cleanupTempFile {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	written, err := c.downloadResponseToWriter(reqCtx, url, out, filepath)
+	if err != nil {
+		return err
+	}
+	_ = written
+
+	if err := out.Close(); err != nil {
+		c.logRequest(slog.LevelError, reqCtx, "download file save failed", http.MethodGet, url,
+			"destination", filepath,
+			"error", err,
+		)
+		return fmt.Errorf("error closing temp file: %w", err)
+	}
+	out = nil
+
+	if err := os.Rename(tempPath, filepath); err != nil {
+		c.logRequest(slog.LevelError, reqCtx, "download file save failed", http.MethodGet, url,
+			"destination", filepath,
+			"error", err,
+		)
+		return fmt.Errorf("error renaming temp file: %w", err)
+	}
+
+	cleanupTempFile = false
+	return nil
+}
+
+func (c *HttpClient) downloadResponseToWriter(reqCtx RequestLogContext, url string, writer io.Writer, destination string) (int64, error) {
 	ctx, cancel := withOptionalTimeout(c.baseContext(), c.downloadTimeout)
 	defer cancel()
 
 	req, err := c.createDownloadRequest(ctx, url)
 	if err != nil {
-		c.logRequest(slog.LevelError, reqCtx, "download request create failed", http.MethodGet, url,
-			"destination", filepath,
-			"error", err,
-		)
-		return err
+		args := []any{"error", err}
+		if destination != "" {
+			args = append([]any{"destination", destination}, args...)
+		}
+		c.logRequest(slog.LevelError, reqCtx, "download request create failed", http.MethodGet, url, args...)
+		return 0, err
 	}
 
 	startedAt := time.Now()
-	c.logRequest(slog.LevelInfo, reqCtx, "download request started", http.MethodGet, url,
-		"destination", filepath,
-		"headers", SanitizeHeaders(req.Header),
-	)
+	startArgs := []any{"headers", SanitizeHeaders(req.Header)}
+	if destination != "" {
+		startArgs = append([]any{"destination", destination}, startArgs...)
+	}
+	c.logRequest(slog.LevelInfo, reqCtx, "download request started", http.MethodGet, url, startArgs...)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		c.logRequest(slog.LevelError, reqCtx, "download request failed", http.MethodGet, url,
-			"destination", filepath,
+		failArgs := []any{
 			"duration_ms", time.Since(startedAt).Milliseconds(),
 			"error", err,
-		)
-		return fmt.Errorf("failed to download file: %w", err)
+		}
+		if destination != "" {
+			failArgs = append([]any{"destination", destination}, failArgs...)
+		}
+		c.logRequest(slog.LevelError, reqCtx, "download request failed", http.MethodGet, url, failArgs...)
+		return 0, fmt.Errorf("failed to download file: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		c.logRequest(slog.LevelError, reqCtx, "download request finished with bad status", http.MethodGet, url,
-			"destination", filepath,
+		badArgs := []any{
 			"status_code", resp.StatusCode,
 			"duration_ms", time.Since(startedAt).Milliseconds(),
 			"response_bytes", len(body),
 			"response_preview", responsePreview(resp.Header.Get("Content-Type"), body),
-		)
-		return fmt.Errorf("failed to download file: status code %d", resp.StatusCode)
+		}
+		if destination != "" {
+			badArgs = append([]any{"destination", destination}, badArgs...)
+		}
+		c.logRequest(slog.LevelError, reqCtx, "download request finished with bad status", http.MethodGet, url, badArgs...)
+		return 0, fmt.Errorf("failed to download file: status code %d", resp.StatusCode)
 	}
 
-	written, err := c.saveResponseToFile(resp.Body, filepath)
+	buf := make([]byte, DefaultBufferSize)
+	written, err := io.CopyBuffer(writer, resp.Body, buf)
 	if err != nil {
-		c.logRequest(slog.LevelError, reqCtx, "download file save failed", http.MethodGet, url,
-			"destination", filepath,
+		copyArgs := []any{
 			"status_code", resp.StatusCode,
 			"duration_ms", time.Since(startedAt).Milliseconds(),
 			"error", err,
-		)
-		return err
+		}
+		if destination != "" {
+			copyArgs = append([]any{"destination", destination}, copyArgs...)
+			c.logRequest(slog.LevelError, reqCtx, "download file save failed", http.MethodGet, url, copyArgs...)
+		} else {
+			c.logRequest(slog.LevelError, reqCtx, "download response copy failed", http.MethodGet, url, copyArgs...)
+		}
+		return written, fmt.Errorf("error writing to file: %w", err)
 	}
 
-	c.logRequest(slog.LevelInfo, reqCtx, "download request finished", http.MethodGet, url,
-		"destination", filepath,
+	finishArgs := []any{
 		"status_code", resp.StatusCode,
 		"duration_ms", time.Since(startedAt).Milliseconds(),
 		"response_bytes", written,
-	)
+	}
+	if destination != "" {
+		finishArgs = append([]any{"destination", destination}, finishArgs...)
+	}
+	c.logRequest(slog.LevelInfo, reqCtx, "download request finished", http.MethodGet, url, finishArgs...)
 
-	return nil
+	return written, nil
 }
 
 func (c *HttpClient) createDownloadRequest(ctx context.Context, url string) (*http.Request, error) {
@@ -341,41 +409,6 @@ func (c *HttpClient) createDownloadRequest(ctx context.Context, url string) (*ht
 	}
 
 	return req, nil
-}
-
-func (c *HttpClient) saveResponseToFile(body io.Reader, filepath string) (int64, error) {
-	out, err := c.createTempDownloadFile(filepath)
-	if err != nil {
-		return 0, fmt.Errorf("error creating file: %w", err)
-	}
-	tempPath := out.Name()
-	cleanupTempFile := true
-	defer func() {
-		if out != nil {
-			_ = out.Close()
-		}
-		if cleanupTempFile {
-			_ = os.Remove(tempPath)
-		}
-	}()
-
-	buf := make([]byte, DefaultBufferSize)
-	written, err := io.CopyBuffer(out, body, buf)
-	if err != nil {
-		return written, fmt.Errorf("error writing to file: %w", err)
-	}
-
-	if err := out.Close(); err != nil {
-		return written, fmt.Errorf("error closing temp file: %w", err)
-	}
-	out = nil
-
-	if err := os.Rename(tempPath, filepath); err != nil {
-		return written, fmt.Errorf("error renaming temp file: %w", err)
-	}
-
-	cleanupTempFile = false
-	return written, nil
 }
 
 func (c *HttpClient) baseContext() context.Context {

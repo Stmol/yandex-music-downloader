@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewHttpClient(t *testing.T) {
@@ -40,6 +41,41 @@ func TestSetDownloadTimeout(t *testing.T) {
 
 	client.SetDownloadTimeout(-1 * time.Second)
 	assert.Zero(t, client.downloadTimeout)
+}
+
+func TestSetTransport(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"result":"ok"}`))
+	}))
+	defer server.Close()
+
+	client := NewHttpClient()
+	client.SetTransport(&hostRewriteTransport{
+		targetHost: server.Listener.Addr().String(),
+		base:       http.DefaultTransport,
+	})
+
+	body, err := client.Get("https://api.music.yandex.net/test")
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "ok")
+}
+
+type hostRewriteTransport struct {
+	targetHost string
+	base       http.RoundTripper
+}
+
+func (t *hostRewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	cloned := req.Clone(req.Context())
+	cloned.URL.Scheme = "http"
+	cloned.URL.Host = t.targetHost
+	cloned.Host = t.targetHost
+
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(cloned)
 }
 
 func TestGet(t *testing.T) {
@@ -133,6 +169,99 @@ func TestPost(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, `{"result": "success"}`, string(resp))
+}
+
+type trackingWriter struct {
+	bytes.Buffer
+	closed bool
+}
+
+func (w *trackingWriter) Close() error {
+	w.closed = true
+	return nil
+}
+
+func TestDownloadToWriterWithContextWritesBytesWithoutClosingWriter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		w.Write([]byte("audio-data"))
+	}))
+	defer server.Close()
+
+	client := NewHttpClient()
+	writer := &trackingWriter{}
+
+	written, err := client.DownloadToWriterWithContext(
+		RequestLogContext{Stage: "download_file", Operation: "download_mp3"},
+		server.URL,
+		writer,
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(len("audio-data")), written)
+	assert.Equal(t, []byte("audio-data"), writer.Bytes())
+	assert.False(t, writer.closed)
+}
+
+func TestDownloadToWriterWithContextRejectsBadStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte("unavailable"))
+	}))
+	defer server.Close()
+
+	client := NewHttpClient()
+	writer := &trackingWriter{}
+
+	written, err := client.DownloadToWriterWithContext(
+		RequestLogContext{Stage: "download_file", Operation: "download_mp3"},
+		server.URL,
+		writer,
+	)
+
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "status code 503")
+	assert.Zero(t, written)
+	assert.Empty(t, writer.Bytes())
+	assert.False(t, writer.closed)
+}
+
+func TestDownloadToWriterWithContextStopsOnCancel(t *testing.T) {
+	serverStarted := make(chan struct{})
+	serverCanFinish := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("partial"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+
+		close(serverStarted)
+		<-serverCanFinish
+		_, _ = w.Write([]byte(" content"))
+	}))
+	defer server.Close()
+
+	client := NewHttpClient()
+	writer := &trackingWriter{}
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := client.DownloadToWriterWithContext(
+			RequestLogContext{Stage: "download_file", Operation: "download_mp3"},
+			server.URL,
+			writer,
+		)
+		errCh <- err
+	}()
+
+	<-serverStarted
+	client.Cancel()
+	close(serverCanFinish)
+
+	err := <-errCh
+	assert.Error(t, err)
+	assert.False(t, writer.closed)
 }
 
 func TestDownloadFile(t *testing.T) {

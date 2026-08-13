@@ -75,6 +75,7 @@ type Client struct {
 	logger             *utils.DownloadLogger
 	losslessDownloader losslessTrackDownloader
 	mp3Downloader      trackDownloadFunc
+	mp3Tagger          artifactTagger
 	m4aTagger          m4aTagger
 	userUID            int
 	username           string
@@ -396,38 +397,42 @@ func (c *Client) downloadTrackMP3(track model.Track, outputDir string, options D
 		return "", fmt.Errorf("failed to get download link: %w", err)
 	}
 
-	coverCh := c.startCoverDownload(track, filename, options)
-	if err := c.httpClient.DownloadFileWithContext(c.requestContext(trackCtx, "download_file", "download_mp3"), link, filename); err != nil {
-		cover := c.waitCoverDownload(trackCtx, coverCh)
-		if cover.filename != "" {
-			c.removeCoverFile(trackCtx, cover.filename)
-		}
-		c.logTrackFailure(trackCtx, "download_file", err,
-			"filename", filename,
-		)
-		return "", fmt.Errorf("failed to download file: %w", err)
-	}
+	result, err := c.publishAudioArtifact(
+		track,
+		filename,
+		options,
+		c.mp3ArtifactSpec(),
+		func(tempFilename string) (err error) {
+			file, err := os.OpenFile(tempFilename, os.O_WRONLY|os.O_TRUNC, 0600)
+			if err != nil {
+				return fmt.Errorf("open MP3 temp file: %w", err)
+			}
 
-	cover := c.waitCoverDownload(trackCtx, coverCh)
-	if cover.filename != "" {
-		defer c.removeCoverFile(trackCtx, cover.filename)
-	}
+			var written int64
+			defer func() {
+				closeErr := file.Close()
+				if closeErr == nil {
+					return
+				}
+				if err == nil {
+					err = fmt.Errorf("close MP3 temp file after %d bytes: %w", written, closeErr)
+					return
+				}
+				err = errors.Join(err, closeErr)
+			}()
 
-	if err := writeID3Tags(filename, track, cover.filename); err != nil {
-		c.logTrackFailure(trackCtx, "id3_tags", err,
-			"filename", filename,
-			"cover_filename", cover.filename,
-		)
-		return filename, fmt.Errorf("failed to write id3 tags: %w", err)
-	}
-
-	c.logTrack(slog.LevelInfo, trackCtx, "success",
-		"stage", "id3_tags",
-		"filename", filename,
-		"cover_filename", cover.filename,
+			written, err = c.httpClient.DownloadToWriterWithContext(
+				c.requestContext(trackCtx, "download_file", "download_mp3"),
+				link,
+				file,
+			)
+			return err
+		},
 	)
-
-	return filename, nil
+	if err != nil {
+		return result.Filename, err
+	}
+	return result.Filename, nil
 }
 
 func (c *Client) downloadTrackLossless(track model.Track, outputDir string, options DownloadOptions) (string, error) {
@@ -490,23 +495,7 @@ func (c *Client) downloadTrackLossless(track model.Track, outputDir string, opti
 		return "", fmt.Errorf("failed to download lossless audio: %w", err)
 	}
 
-	tempFilename, err := writeTempAudioFile(filename, data)
-	if err != nil {
-		c.logTrackFailure(trackCtx, "download_file", err,
-			"filename", filename,
-			"format", AudioFormatFLAC,
-		)
-		return "", fmt.Errorf("failed to write lossless file: %w", err)
-	}
-
-	cleanupTemp := true
-	defer func() {
-		if cleanupTemp {
-			_ = os.Remove(tempFilename)
-		}
-	}()
-
-	coverFilename := ""
+	var spec artifactSpec
 	switch strings.ToLower(strings.TrimSpace(info.Codec)) {
 	case "flac":
 		if !bytes.HasPrefix(data, []byte("fLaC")) {
@@ -516,49 +505,9 @@ func (c *Client) downloadTrackLossless(track model.Track, outputDir string, opti
 			)
 			return "", err
 		}
-
-		coverCh := c.startCoverDownload(track, filename, options)
-		cover := c.waitCoverDownload(trackCtx, coverCh)
-		if cover.filename != "" {
-			coverFilename = cover.filename
-			defer c.removeCoverFile(trackCtx, cover.filename)
-		}
-
-		if err := writeFLACTags(tempFilename, track, cover.filename); err != nil {
-			c.logTrackFailure(trackCtx, "flac_tags", err,
-				"filename", filename,
-				"cover_filename", cover.filename,
-			)
-			return filename, fmt.Errorf("failed to write flac tags: %w", err)
-		}
+		spec = flacArtifactSpec()
 	case "flac-mp4":
-		coverCh := c.startCoverDownload(track, filename, options)
-		cover := c.waitCoverDownload(trackCtx, coverCh)
-		if cover.filename != "" {
-			coverFilename = cover.filename
-			defer c.removeCoverFile(trackCtx, cover.filename)
-		}
-
-		coverMIME, coverData, _ := readM4ACoverData(cover.filename)
-		album := model.Album{}
-		if first := firstAlbum(track); first != nil {
-			album = *first
-		}
-		tags := m4aTagInputForTrack(track, album, coverMIME, coverData)
-		if err := c.m4aTags().Write(tempFilename, tags); err != nil {
-			c.logTrack(slog.LevelWarn, trackCtx, "M4A metadata skipped; keeping audio",
-				"stage", "m4a_tags",
-				"filename", filename,
-				"temp_filename", tempFilename,
-				"error", err,
-			)
-		} else {
-			c.logTrack(slog.LevelInfo, trackCtx, "M4A metadata written",
-				"stage", "m4a_tags",
-				"filename", filename,
-				"cover_filename", cover.filename,
-			)
-		}
+		spec = c.m4aArtifactSpec()
 	default:
 		err := fmt.Errorf("%w: codec %q", lossless.ErrNoFLACDownloadInfo, info.Codec)
 		c.logTrackFailure(trackCtx, "lossless_download", err,
@@ -567,23 +516,22 @@ func (c *Client) downloadTrackLossless(track model.Track, outputDir string, opti
 		return "", err
 	}
 
-	if err := os.Rename(tempFilename, filename); err != nil {
-		c.logTrackFailure(trackCtx, "download_file", err,
-			"filename", filename,
-			"temp_filename", tempFilename,
-			"format", AudioFormatFLAC,
-		)
-		return "", fmt.Errorf("failed to save lossless file: %w", err)
-	}
-	cleanupTemp = false
-
-	c.logTrack(slog.LevelInfo, trackCtx, "success",
-		"stage", "lossless_complete",
-		"filename", filename,
-		"cover_filename", coverFilename,
+	result, err := c.publishAudioArtifact(
+		track,
+		filename,
+		options,
+		spec,
+		func(tempFilename string) error {
+			if err := os.WriteFile(tempFilename, data, 0600); err != nil {
+				return fmt.Errorf("write lossless temp file: %w", err)
+			}
+			return nil
+		},
 	)
-
-	return filename, nil
+	if err != nil {
+		return result.Filename, err
+	}
+	return result.Filename, nil
 }
 
 func (c *Client) waitCoverDownload(trackCtx utils.TrackLogContext, coverCh <-chan coverDownloadResult) coverDownloadResult {
@@ -654,31 +602,6 @@ func pickBestBitrate(info []model.DownloadInfo) model.DownloadInfo {
 	})
 
 	return info[0]
-}
-
-func writeTempAudioFile(destination string, data []byte) (string, error) {
-	tempFile, err := os.CreateTemp(filepath.Dir(destination), filepath.Base(destination)+".*.part")
-	if err != nil {
-		return "", fmt.Errorf("error creating temp file: %w", err)
-	}
-	tempFilename := tempFile.Name()
-	cleanup := true
-	defer func() {
-		_ = tempFile.Close()
-		if cleanup {
-			_ = os.Remove(tempFilename)
-		}
-	}()
-
-	if _, err := tempFile.Write(data); err != nil {
-		return "", fmt.Errorf("error writing temp file: %w", err)
-	}
-	if err := tempFile.Close(); err != nil {
-		return "", fmt.Errorf("error closing temp file: %w", err)
-	}
-
-	cleanup = false
-	return tempFilename, nil
 }
 
 func losslessExtensionForCodec(codec string) string {

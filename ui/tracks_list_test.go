@@ -59,6 +59,47 @@ func TestTrackListItemRenderFillsListWidth(t *testing.T) {
 	assert.Equal(t, 160, ansi.StringWidth(ansi.Strip(row.String())))
 }
 
+func TestTrackListItemRenderDownloadedStatusFitsListWidth(t *testing.T) {
+	formats := []string{"MP3", "FLAC"}
+	for _, format := range formats {
+		t.Run(format, func(t *testing.T) {
+			items := []list.Item{
+				TrackListItem{
+					uid:    "item",
+					track:  &model.Track{Title: "Song"},
+					status: TrackStatusDownloaded,
+					format: format,
+				},
+			}
+			modelList := list.New(items, TrackListItem{}, 80, 20)
+			renderer := TrackListItem{}
+
+			var row bytes.Buffer
+			renderer.Render(&row, modelList, 0, items[0])
+
+			assert.Equal(t, 80, ansi.StringWidth(ansi.Strip(row.String())))
+		})
+	}
+}
+
+func TestTrackListItemRenderLongStatusFitsListWidth(t *testing.T) {
+	items := []list.Item{
+		TrackListItem{
+			uid:    "item",
+			track:  &model.Track{Title: "Song"},
+			status: TrackStatusDownloaded,
+			format: "SUPERLONGFORMATNAME",
+		},
+	}
+	modelList := list.New(items, TrackListItem{}, 80, 20)
+	renderer := TrackListItem{}
+
+	var row bytes.Buffer
+	renderer.Render(&row, modelList, 0, items[0])
+
+	assert.Equal(t, 80, ansi.StringWidth(ansi.Strip(row.String())))
+}
+
 func TestTrackListItemDownloadedStatusIncludesFormat(t *testing.T) {
 	items := []list.Item{
 		TrackListItem{

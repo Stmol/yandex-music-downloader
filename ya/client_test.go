@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +18,7 @@ import (
 	"ya-music/ya/lossless"
 	"ya-music/ya/model"
 
+	"github.com/bogem/id3v2/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,10 +63,21 @@ func TestDownloadTrackReturnsAlreadyExistsSentinel(t *testing.T) {
 	filename := buildTrackFilename(track, outputDir)
 	require.NoError(t, os.WriteFile(filename, []byte("existing"), 0644))
 
-	gotFilename, err := NewClient(nil).DownloadTrackWithOptions(track, outputDir, DownloadOptions{})
+	var httpCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httpCalls++
+		t.Errorf("unexpected HTTP request: %s %s", r.Method, r.URL.Path)
+	}))
+	t.Cleanup(server.Close)
+
+	httpClient := utils.NewHttpClient()
+	httpClient.SetTransport(&hostRewriteTransport{targetHost: server.Listener.Addr().String()})
+
+	gotFilename, err := NewClient(httpClient).DownloadTrackWithOptions(track, outputDir, DownloadOptions{})
 
 	assert.Equal(t, filename, gotFilename)
 	assert.ErrorIs(t, err, ErrTrackAlreadyExists)
+	assert.Zero(t, httpCalls)
 }
 
 func TestDownloadTrackReturnsAlreadyExistsSentinelForFLACFormat(t *testing.T) {
@@ -291,12 +305,7 @@ func TestDownloadTrackWithOptionsKeepsM4AWhenTaggingFails(t *testing.T) {
 	assert.Equal(t, 1, tagger.calls)
 	assert.Contains(t, logs.String(), "M4A metadata skipped; keeping audio")
 	assert.Contains(t, logs.String(), "tag boom")
-
-	entries, err := os.ReadDir(outputDir)
-	require.NoError(t, err)
-	for _, entry := range entries {
-		assert.False(t, strings.HasSuffix(entry.Name(), ".part"), "temporary file left behind: %s", entry.Name())
-	}
+	assertNoArtifactTempFiles(t, outputDir)
 }
 
 func TestDownloadTrackWithOptionsKeepsM4AWhenCoverFails(t *testing.T) {
@@ -374,7 +383,7 @@ func TestDownloadTrackWithOptionsDoesNotTouchExistingFinalM4AOnTagFailure(t *tes
 	require.NoError(t, err)
 	require.Len(t, tagger.paths, 1)
 	assert.NotEqual(t, filename, tagger.paths[0])
-	assert.Contains(t, tagger.paths[0], ".part")
+	assert.Contains(t, tagger.paths[0], ".artifact-")
 	assert.Equal(t, unrelatedBefore, sha256File(t, unrelated))
 	assert.FileExists(t, filename)
 }
@@ -394,6 +403,109 @@ func TestMalformedM4AFixtureCopyPreservesChecksum(t *testing.T) {
 
 	assert.Equal(t, copyHashBefore, sha256File(t, copyPath))
 	assert.Equal(t, sourceHashBefore, sha256File(t, sourcePath))
+}
+
+func TestDownloadTrackWithOptionsRejectsInvalidFLACMagic(t *testing.T) {
+	outputDir := t.TempDir()
+	track := model.Track{
+		ID:        model.FlexibleID("13"),
+		Title:     "Song",
+		Available: true,
+	}
+	client := NewClient(nil)
+	client.userUID = 1
+	client.losslessDownloader = &fakeLosslessDownloader{
+		info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac", Bitrate: 1411},
+		data: []byte("not-flac-data"),
+	}
+
+	destination := buildTrackFilenameWithExtension(track, outputDir, ".flac")
+	filename, err := client.downloadTrackLossless(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "lossless response is not a flac stream")
+	assert.Empty(t, filename)
+
+	_, statErr := os.Stat(destination)
+	assert.True(t, os.IsNotExist(statErr))
+	assertNoArtifactTempFiles(t, outputDir)
+}
+
+func TestDownloadTrackWithOptionsRejectsUnknownLosslessCodec(t *testing.T) {
+	outputDir := t.TempDir()
+	track := model.Track{
+		ID:        model.FlexibleID("14"),
+		Title:     "Song",
+		Available: true,
+	}
+	client := NewClient(nil)
+	client.userUID = 1
+	client.losslessDownloader = &fakeLosslessDownloader{
+		info: lossless.DownloadInfo{Quality: "lossless", Codec: "alac", Bitrate: 1411},
+		data: []byte("audio"),
+	}
+
+	destination := buildTrackFilenameWithExtension(track, outputDir, ".flac")
+	filename, err := client.downloadTrackLossless(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, lossless.ErrNoFLACDownloadInfo)
+	assert.Empty(t, filename)
+
+	_, statErr := os.Stat(destination)
+	assert.True(t, os.IsNotExist(statErr))
+	assertNoArtifactTempFiles(t, outputDir)
+}
+
+func TestDownloadTrackWithOptionsReturnsFLACTagErrorWithoutDestination(t *testing.T) {
+	outputDir := t.TempDir()
+	track := model.Track{
+		ID:        model.FlexibleID("15"),
+		Title:     "Song",
+		Available: true,
+		Artists:   []model.Artist{{Name: "Artist"}},
+	}
+	client := NewClient(nil)
+	client.userUID = 1
+	client.losslessDownloader = &fakeLosslessDownloader{
+		info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac", Bitrate: 1411},
+		data: []byte("fLaCinvalid"),
+	}
+
+	destination := buildTrackFilenameWithExtension(track, outputDir, ".flac")
+	filename, err := client.downloadTrackLossless(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to write flac tags")
+	assert.Equal(t, destination, filename)
+
+	_, statErr := os.Stat(destination)
+	assert.True(t, os.IsNotExist(statErr))
+	assertNoArtifactTempFiles(t, outputDir)
+}
+
+func TestDownloadTrackWithOptionsFallsBackToMP3WhenFLACTaggingFails(t *testing.T) {
+	outputDir := t.TempDir()
+	track := model.Track{
+		ID:        model.FlexibleID("16"),
+		Title:     "Song",
+		Available: true,
+	}
+	client := NewClient(nil)
+	client.userUID = 1
+	client.losslessDownloader = &fakeLosslessDownloader{
+		info: lossless.DownloadInfo{Quality: "lossless", Codec: "flac", Bitrate: 1411},
+		data: []byte("fLaCinvalid"),
+	}
+	client.mp3Downloader = func(_ model.Track, _ string, options DownloadOptions) (string, error) {
+		assert.Equal(t, AudioFormatFLAC, options.FormatOrDefault())
+		return "fallback.mp3", nil
+	}
+
+	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
+
+	require.NoError(t, err)
+	assert.Equal(t, "fallback.mp3", filename)
 }
 
 func TestDownloadTrackWithOptionsDoesNotDownloadLosslessWhenTargetExists(t *testing.T) {
@@ -420,6 +532,175 @@ func TestDownloadTrackWithOptionsDoesNotDownloadLosslessWhenTargetExists(t *test
 	assert.ErrorIs(t, err, ErrTrackAlreadyExists)
 	assert.Equal(t, 1, fakeLossless.infoCalls)
 	assert.Zero(t, fakeLossless.downloadCalls)
+}
+
+type hostRewriteTransport struct {
+	targetHost string
+	base       http.RoundTripper
+}
+
+func (t *hostRewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	cloned := req.Clone(req.Context())
+	cloned.URL.Scheme = "http"
+	cloned.URL.Host = t.targetHost
+	cloned.Host = t.targetHost
+
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(cloned)
+}
+
+type mp3TestServer struct {
+	server   *httptest.Server
+	requests []string
+}
+
+type mp3TestServerConfig struct {
+	trackID        string
+	mp3Payload     []byte
+	downloadStatus int
+}
+
+func newMP3TestServer(t *testing.T, cfg mp3TestServerConfig) *mp3TestServer {
+	t.Helper()
+
+	if cfg.trackID == "" {
+		cfg.trackID = "42"
+	}
+	if cfg.mp3Payload == nil {
+		cfg.mp3Payload = []byte("audio payload")
+	}
+	if cfg.downloadStatus == 0 {
+		cfg.downloadStatus = http.StatusOK
+	}
+
+	ts := &mp3TestServer{}
+	infoURL := "https://api.music.yandex.net/download-info-xml"
+	ts.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ts.requests = append(ts.requests, r.Method+" "+r.URL.Path)
+
+		switch {
+		case r.URL.Path == "/tracks/"+cfg.trackID+"/download-info":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(model.DownloadInfoResponse{
+				Result: []model.DownloadInfo{{
+					BitrateInKbps:   320,
+					Codec:           "mp3",
+					DownloadInfoURL: infoURL,
+				}},
+			})
+		case r.URL.Path == "/download-info-xml":
+			w.Header().Set("Content-Type", "application/xml")
+			_ = xml.NewEncoder(w).Encode(model.TrackDownloadInfo{
+				Host: "strm.test",
+				Path: "/mp3/track",
+				Ts:   "123",
+				S:    "secret",
+			})
+		case strings.HasPrefix(r.URL.Path, "/get-mp3/"):
+			if cfg.downloadStatus != http.StatusOK {
+				w.WriteHeader(cfg.downloadStatus)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(cfg.mp3Payload)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(ts.server.Close)
+	return ts
+}
+
+func newMP3TestClient(t *testing.T, ts *mp3TestServer) *Client {
+	t.Helper()
+
+	httpClient := utils.NewHttpClient()
+	httpClient.SetTransport(&hostRewriteTransport{targetHost: ts.server.Listener.Addr().String()})
+	return NewClient(httpClient)
+}
+
+func TestDownloadTrackMP3PublishesThroughArtifactPipeline(t *testing.T) {
+	outputDir := t.TempDir()
+	track := model.Track{
+		ID:        model.FlexibleID("42"),
+		Title:     "Song",
+		Available: true,
+		Artists:   []model.Artist{{Name: "Artist"}},
+	}
+
+	ts := newMP3TestServer(t, mp3TestServerConfig{trackID: "42"})
+	client := newMP3TestClient(t, ts)
+
+	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{})
+
+	require.NoError(t, err)
+	assert.Equal(t, buildTrackFilename(track, outputDir), filename)
+
+	tag, err := id3v2.Open(filename, id3v2.Options{Parse: true})
+	require.NoError(t, err)
+	defer tag.Close()
+	assert.Equal(t, "Song", tag.Title())
+	assert.Equal(t, "Artist", tag.Artist())
+
+	assert.Contains(t, ts.requests, "GET /tracks/42/download-info")
+	assert.Contains(t, ts.requests, "GET /download-info-xml")
+	assert.True(t, strings.Contains(ts.requests[len(ts.requests)-1], "GET /get-mp3/"))
+	assertNoArtifactTempFiles(t, outputDir)
+}
+
+func TestDownloadTrackMP3ReturnsDownloadErrorWithoutPartialDestination(t *testing.T) {
+	outputDir := t.TempDir()
+	track := model.Track{
+		ID:        model.FlexibleID("42"),
+		Title:     "Song",
+		Available: true,
+	}
+
+	ts := newMP3TestServer(t, mp3TestServerConfig{
+		trackID:        "42",
+		downloadStatus: http.StatusServiceUnavailable,
+	})
+	client := newMP3TestClient(t, ts)
+	destination := buildTrackFilename(track, outputDir)
+
+	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to download file")
+	assert.Empty(t, filename)
+
+	_, statErr := os.Stat(destination)
+	assert.True(t, os.IsNotExist(statErr))
+	assertNoArtifactTempFiles(t, outputDir)
+}
+
+func TestDownloadTrackMP3ReturnsTaggerErrorWithoutPartialDestination(t *testing.T) {
+	outputDir := t.TempDir()
+	track := model.Track{
+		ID:        model.FlexibleID("42"),
+		Title:     "Song",
+		Available: true,
+	}
+
+	ts := newMP3TestServer(t, mp3TestServerConfig{trackID: "42"})
+	client := newMP3TestClient(t, ts)
+	destination := buildTrackFilename(track, outputDir)
+
+	tagger := &recordingArtifactTagger{err: errors.New("tag failure")}
+	client.mp3Tagger = tagger
+
+	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to write mp3 tags")
+	assert.Equal(t, destination, filename)
+
+	_, statErr := os.Stat(destination)
+	assert.True(t, os.IsNotExist(statErr))
+	assertNoArtifactTempFiles(t, outputDir)
 }
 
 func TestBuildTrackFilenameUsesCanonicalArtistTrackPattern(t *testing.T) {
