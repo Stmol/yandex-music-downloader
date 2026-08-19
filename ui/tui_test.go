@@ -79,11 +79,11 @@ func TestSourceSubmitAppliesStoredWindowSizeToDownloadModel(t *testing.T) {
 	m.windowHeight = 30
 
 	updatedModel, _ := m.Update(SourceSubmitMsg{
-		Track: &model.Track{
+		Tracks: []model.Track{{
 			ID:        model.FlexibleID("1"),
 			Title:     "Track",
 			Available: true,
-		},
+		}},
 	})
 	updated := updatedModel.(Model)
 
@@ -110,7 +110,7 @@ func TestDownloadViewFitsInsideStoredWindowHeight(t *testing.T) {
 	}
 
 	updatedModel, _ = updated.Update(SourceSubmitMsg{
-		Album: &model.Album{Volumes: [][]model.Track{tracks}},
+		Tracks: tracks,
 	})
 	updated = updatedModel.(Model)
 
@@ -130,21 +130,15 @@ func TestBackToURLAppliesStoredWindowSizeToSourceModel(t *testing.T) {
 	assert.Equal(t, 96, updated.sourceModel.urlInput.Width())
 }
 
-func TestSourceSubmitAlbumAddsVolumeTracks(t *testing.T) {
+func TestSourceSubmitAddsTracks(t *testing.T) {
 	client := ya.NewClient(utils.NewHttpClient())
 	m := StartUi(client)
 
 	updatedModel, _ := m.Update(SourceSubmitMsg{
-		Album: &model.Album{
-			Volumes: [][]model.Track{
-				{
-					{ID: model.FlexibleID("2"), Title: "B", Available: true},
-					{ID: model.FlexibleID("1"), Title: "A", Available: true},
-				},
-				{
-					{ID: model.FlexibleID("3"), Title: "C", Available: true},
-				},
-			},
+		Tracks: []model.Track{
+			{ID: model.FlexibleID("2"), Title: "B", Available: true},
+			{ID: model.FlexibleID("1"), Title: "A", Available: true},
+			{ID: model.FlexibleID("3"), Title: "C", Available: true},
 		},
 	})
 	updated := updatedModel.(Model)
