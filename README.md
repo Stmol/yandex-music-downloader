@@ -34,6 +34,39 @@ A GUI application for downloading tracks from the Yandex Music streaming service
 -   Optional: set a download timeout in seconds: `./yamdl --timeout 180`
 -   Optional: skip cover download and embedding to save time and traffic: `./yamdl --skip-cover=true`
 
+## Batch Downloads
+
+Use `download` to fetch a track, album, playlist, or chart without opening the terminal UI:
+
+```bash
+./yamdl download \
+  --token abc123 \
+  --link https://music.yandex.ru/album/123 \
+  --format mp3 \
+  --output ./downloads
+```
+
+Available options:
+
+- `--token` and `--link` are required.
+- `--format mp3|flac` selects MP3 or lossless download; MP3 is the default.
+- `--output <directory>` selects the destination; `./downloads` is the default.
+- `--timeout <seconds>` and `--skip-cover` work the same way as in the terminal UI.
+
+Each track is printed with its source position and state, for example:
+
+```text
+  1. Artist — Track title — downloading
+  1. Artist — Track title — done (mp3)
+  2. Artist — Another track — skipped: already exists
+  3. Artist — Restricted track — skipped: unavailable
+
+Finished: 1 downloaded, 2 skipped, 0 failed
+Output: ./downloads
+```
+
+Errors for individual tracks appear in the final summary but do not make a completed batch command fail. Invalid arguments, an invalid token, or a source that cannot be resolved return a non-zero exit code. Interrupting the command with Ctrl+C or SIGTERM returns exit code 130 after printing the summary for tracks processed so far.
+
 ## Authentication Token
 
 An OAuth token is required for accessing certain tracks and playlists.

@@ -44,9 +44,7 @@ type (
 	}
 
 	SourceSubmitMsg struct {
-		Playlist *model.Playlist
-		Album    *model.Album
-		Track    *model.Track
+		Tracks []model.Track
 	}
 
 	URLHandleErrorMsg string
@@ -145,20 +143,28 @@ func (m SourceModel) handleEnterKey() (SourceModel, tea.Cmd) {
 }
 
 func (m *SourceModel) parseURL(input string) tea.Msg {
+	msg := parseSourceURL(input)
+	if msg == nil {
+		return nil
+	}
+	return *msg
+}
+
+func parseSourceURL(input string) *URLSubmitMsg {
 	if matches := trackPattern.FindStringSubmatch(input); matches != nil {
-		return URLSubmitMsg{
+		return &URLSubmitMsg{
 			kind:    sourceURLTrack,
 			TrackID: matches[2],
 		}
 	}
 	if matches := albumPattern.FindStringSubmatch(input); matches != nil {
-		return URLSubmitMsg{
+		return &URLSubmitMsg{
 			kind:    sourceURLAlbum,
 			AlbumID: matches[1],
 		}
 	}
 	if matches := playlistPattern.FindStringSubmatch(input); matches != nil {
-		return URLSubmitMsg{
+		return &URLSubmitMsg{
 			kind:       sourceURLLegacyPlaylist,
 			PlaylistID: matches[2],
 			Username:   matches[1],
@@ -177,13 +183,13 @@ func (m *SourceModel) parseURL(input string) tea.Msg {
 			return nil
 		}
 
-		return URLSubmitMsg{
+		return &URLSubmitMsg{
 			kind:         sourceURLPlaylistUUID,
 			PlaylistUUID: playlistID,
 		}
 	}
 	if matches := chartPattern.FindStringSubmatch(input); matches != nil {
-		return URLSubmitMsg{
+		return &URLSubmitMsg{
 			kind:   sourceURLChart,
 			Region: matches[1],
 		}
@@ -193,46 +199,79 @@ func (m *SourceModel) parseURL(input string) tea.Msg {
 
 func (m *SourceModel) handleURL(msg URLSubmitMsg) tea.Cmd {
 	return func() tea.Msg {
-		switch msg.kind {
-		case sourceURLTrack:
-			track, err := m.client.TrackInfo(msg.TrackID)
-			if err != nil {
-				return URLHandleErrorMsg(err.Error())
-			}
-			return SourceSubmitMsg{Track: track}
-		case sourceURLAlbum:
-			album, err := m.client.AlbumWithTracks(msg.AlbumID)
-			if err != nil {
-				return URLHandleErrorMsg(err.Error())
-			}
-			return SourceSubmitMsg{Album: album}
-		case sourceURLLegacyPlaylist, sourceURLPlaylistUUID:
-			playlist, err := m.fetchPlaylist(msg)
-			if err != nil {
-				return URLHandleErrorMsg(err.Error())
-			}
-			return SourceSubmitMsg{Playlist: playlist}
-		case sourceURLChart:
-			playlist, err := m.client.Chart(msg.Region)
-			if err != nil {
-				return URLHandleErrorMsg(err.Error())
-			}
-			return SourceSubmitMsg{Playlist: playlist}
-		default:
-			return URLHandleErrorMsg("unsupported url type")
+		tracks, err := resolveSourceTracks(m.client, msg)
+		if err != nil {
+			return URLHandleErrorMsg(err.Error())
 		}
+		return SourceSubmitMsg{Tracks: tracks}
 	}
 }
 
-func (m *SourceModel) fetchPlaylist(msg URLSubmitMsg) (*model.Playlist, error) {
-	switch msg.kind {
-	case sourceURLLegacyPlaylist:
-		return m.client.UsersPlaylist(msg.PlaylistID, msg.Username)
-	case sourceURLPlaylistUUID:
-		return m.client.PlaylistByUUID(msg.PlaylistUUID)
-	default:
-		return nil, fmt.Errorf("unsupported playlist url type")
+type sourceClient interface {
+	TrackInfo(id string) (*model.Track, error)
+	AlbumWithTracks(id string) (*model.Album, error)
+	UsersPlaylist(id string, username string) (*model.Playlist, error)
+	PlaylistByUUID(id string) (*model.Playlist, error)
+	Chart(region string) (*model.Playlist, error)
+}
+
+// ResolveSourceTracks turns a supported Yandex Music URL into its tracks.
+// Both the terminal UI and the non-interactive command use this resolver.
+func ResolveSourceTracks(client sourceClient, input string) ([]model.Track, error) {
+	msg := parseSourceURL(strings.TrimSpace(input))
+	if msg == nil {
+		return nil, fmt.Errorf("invalid URL")
 	}
+	return resolveSourceTracks(client, *msg)
+}
+
+func resolveSourceTracks(client sourceClient, msg URLSubmitMsg) ([]model.Track, error) {
+	switch msg.kind {
+	case sourceURLTrack:
+		track, err := client.TrackInfo(msg.TrackID)
+		if err != nil {
+			return nil, err
+		}
+		return []model.Track{*track}, nil
+	case sourceURLAlbum:
+		album, err := client.AlbumWithTracks(msg.AlbumID)
+		if err != nil {
+			return nil, err
+		}
+		var tracks []model.Track
+		for _, volume := range album.Volumes {
+			tracks = append(tracks, volume...)
+		}
+		return tracks, nil
+	case sourceURLLegacyPlaylist:
+		playlist, err := client.UsersPlaylist(msg.PlaylistID, msg.Username)
+		if err != nil {
+			return nil, err
+		}
+		return playlistTracks(playlist), nil
+	case sourceURLPlaylistUUID:
+		playlist, err := client.PlaylistByUUID(msg.PlaylistUUID)
+		if err != nil {
+			return nil, err
+		}
+		return playlistTracks(playlist), nil
+	case sourceURLChart:
+		playlist, err := client.Chart(msg.Region)
+		if err != nil {
+			return nil, err
+		}
+		return playlistTracks(playlist), nil
+	default:
+		return nil, fmt.Errorf("unsupported URL type")
+	}
+}
+
+func playlistTracks(playlist *model.Playlist) []model.Track {
+	tracks := make([]model.Track, 0, len(playlist.Tracks))
+	for _, short := range playlist.Tracks {
+		tracks = append(tracks, short.Track)
+	}
+	return tracks
 }
 
 func (m SourceModel) View() tea.View {
