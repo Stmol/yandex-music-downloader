@@ -34,38 +34,38 @@ A GUI application for downloading tracks from the Yandex Music streaming service
 -   Optional: set a download timeout in seconds: `./yamdl --timeout 180`
 -   Optional: skip cover download and embedding to save time and traffic: `./yamdl --skip-cover=true`
 
-## Batch Downloads
+## Command-Line Downloads
 
-Use `download` to fetch a track, album, playlist, or chart without opening the terminal UI:
+Use the `download` subcommand to fetch a track, album, playlist, or chart without opening the terminal UI:
 
 ```bash
 ./yamdl download \
-  --token abc123 \
-  --link https://music.yandex.ru/album/123 \
+  --token y0_AgAAAAB3kL9pQw7mX2dR8nV5cT1aE6zF \
+  --link https://music.yandex.ru/album/10733135 \
   --format mp3 \
   --output ./downloads
 ```
 
 Available options:
 
-- `--token` and `--link` are required.
-- `--format mp3|flac` selects MP3 or lossless download; MP3 is the default.
-- `--output <directory>` selects the destination; `./downloads` is the default.
-- `--timeout <seconds>` and `--skip-cover` work the same way as in the terminal UI.
+- `--token <token>` is required. Provide your Yandex Music OAuth token.
+- `--link <url>` is required. Provide a Yandex Music track, album, playlist, or chart URL.
+- `--format <mp3|flac>` selects MP3 or lossless download; MP3 is the default.
+- `--output <directory>` selects the destination directory; `./downloads` is the default.
+- `--timeout <seconds>` limits the download time for each audio file. Use `0`, the default, to disable the limit.
+- `--skip-cover` skips downloading and embedding cover art. Text metadata is still written.
 
-Each track is printed with its source position and state, for example:
+Each status update includes the track's source position. A track is reported when downloading starts and again when it finishes, for example:
 
 ```text
   1. Artist — Track title — downloading
-  1. Artist — Track title — done (mp3)
   2. Artist — Another track — skipped: already exists
   3. Artist — Restricted track — skipped: unavailable
+  1. Artist — Track title — done (mp3)
 
 Finished: 1 downloaded, 2 skipped, 0 failed
 Output: ./downloads
 ```
-
-Errors for individual tracks appear in the final summary but do not make a completed batch command fail. Invalid arguments, an invalid token, or a source that cannot be resolved return a non-zero exit code. Interrupting the command with Ctrl+C or SIGTERM returns exit code 130 after printing the summary for tracks processed so far.
 
 ## Authentication Token
 
