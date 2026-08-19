@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.13 - 2026-08-19
+- added a non-interactive `yamdl download` command for downloading a track, album, playlist, or chart without opening the terminal UI
+- added required `--token` and `--link` options plus `--format`, `--output`, `--timeout`, and `--skip-cover` controls for batch downloads; MP3 and `./downloads` remain the defaults
+- report each batch track's position and outcome, skip unavailable or duplicate entries, and print a downloaded/skipped/failed summary with the output directory
+- validate batch arguments, authentication, source resolution, and output paths before starting downloads; Ctrl+C and SIGTERM cancel the client, print the partial summary, and return exit code 130
+
 ## v1.12 - 2026-08-13
 - refactored the download queue around explicit per-session events, so progress counters stay scoped to the current run, unknown track IDs cannot corrupt state, and restarting `Download all` requeues eligible tracks consistently
 - unified MP3, FLAC, and M4A publication through a temporary artifact pipeline that streams MP3 responses into staging files, writes metadata before the final rename, publishes complete files atomically, and removes incomplete artifacts after failures
