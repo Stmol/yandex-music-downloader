@@ -23,11 +23,27 @@ const (
 	StatusError       Status = "error"
 )
 
+type Container string
+
+const (
+	ContainerMP3  Container = "mp3"
+	ContainerFLAC Container = "flac"
+	ContainerM4A  Container = "m4a"
+)
+
+type SkipReason string
+
+const (
+	SkipUnavailable   SkipReason = "unavailable"
+	SkipDuplicate     SkipReason = "duplicate"
+	SkipAlreadyExists SkipReason = "already exists"
+)
+
 type Event struct {
 	Index  int
 	Track  model.Track
 	Status Status
-	Format string
+	Format Container
 	Reason string
 }
 
@@ -72,22 +88,22 @@ func Run(config Config) <-chan Event {
 			event := Event{Index: position + 1, Track: track}
 			if !track.Available {
 				event.Status = StatusSkipped
-				event.Reason = "unavailable"
+				event.Reason = string(SkipUnavailable)
 				events <- event
 				continue
 			}
 
 			id := track.ID.String()
-			name := track.FullTitle() + " - " + track.ArtistsString()
+			name := track.DuplicateKey()
 			if _, exists := seenIDs[id]; exists {
 				event.Status = StatusSkipped
-				event.Reason = "duplicate"
+				event.Reason = string(SkipDuplicate)
 				events <- event
 				continue
 			}
 			if _, exists := seenNames[name]; exists {
 				event.Status = StatusSkipped
-				event.Reason = "duplicate"
+				event.Reason = string(SkipDuplicate)
 				events <- event
 				continue
 			}
@@ -126,7 +142,7 @@ func Run(config Config) <-chan Event {
 				filename, err := config.Client.DownloadTrackWithOptions(event.Track, config.OutputDir, config.Options)
 				if errors.Is(err, ya.ErrTrackAlreadyExists) {
 					event.Status = StatusSkipped
-					event.Reason = "already exists"
+					event.Reason = string(SkipAlreadyExists)
 					event.Format = formatFromFilename(filename)
 				} else if err != nil {
 					event.Status = StatusError
@@ -145,13 +161,13 @@ func Run(config Config) <-chan Event {
 	return events
 }
 
-func formatFromFilename(filename string) string {
+func formatFromFilename(filename string) Container {
 	switch strings.ToLower(filepath.Ext(filename)) {
 	case ".flac":
-		return "flac"
+		return ContainerFLAC
 	case ".m4a", ".mp4":
-		return "m4a"
+		return ContainerM4A
 	default:
-		return "mp3"
+		return ContainerMP3
 	}
 }

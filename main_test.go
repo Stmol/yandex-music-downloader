@@ -39,8 +39,8 @@ func TestConsumeDownloadEventsEmitHelperKeepsOrder(t *testing.T) {
 	}
 	events := make(chan batch.Event, 3)
 	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDownloading}
-	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDone, Format: "mp3"}
-	events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: "flac"}
+	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDone, Format: batch.ContainerMP3}
+	events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: batch.ContainerFLAC}
 	close(events)
 
 	var stdout bytes.Buffer
@@ -149,7 +149,7 @@ func TestFormatBatchEventAndSummary(t *testing.T) {
 		Title:   "Track",
 		Artists: []model.Artist{{Name: "Artist"}},
 	}
-	event := batch.Event{Index: 2, Track: track, Status: batch.StatusDone, Format: "m4a"}
+	event := batch.Event{Index: 2, Track: track, Status: batch.StatusDone, Format: batch.ContainerM4A}
 	tests := []struct {
 		event batch.Event
 		want  string
@@ -183,8 +183,8 @@ func TestConsumeDownloadEventsWritesEventsAsTheyArrive(t *testing.T) {
 	}
 	events := make(chan batch.Event, 3)
 	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDownloading}
-	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDone, Format: "mp3"}
-	events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: "flac"}
+	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDone, Format: batch.ContainerMP3}
+	events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: batch.ContainerFLAC}
 	close(events)
 
 	var stdout bytes.Buffer
@@ -229,7 +229,7 @@ func TestConsumeDownloadEventsDrainsAllEventsWithoutInterrupt(t *testing.T) {
 		{Title: "Third", Artists: []model.Artist{{Name: "Three"}}},
 	}
 	events := make(chan batch.Event, 3)
-	events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: "mp3"}
+	events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: batch.ContainerMP3}
 	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusSkipped, Reason: "duplicate"}
 	events <- batch.Event{Index: 3, Track: tracks[2], Status: batch.StatusError, Reason: "access denied"}
 	close(events)
@@ -265,7 +265,7 @@ func TestConsumeDownloadEventsCallsCancelAndDrainsOnInterrupt(t *testing.T) {
 	go func() {
 		events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDownloading}
 		close(interrupt)
-		events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: "mp3"}
+		events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: batch.ContainerMP3}
 		close(events)
 	}()
 

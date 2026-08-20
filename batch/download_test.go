@@ -44,7 +44,7 @@ func TestRunReportsTrackLifecycleAndContinuesAfterErrors(t *testing.T) {
 	require.Len(t, events, 4)
 	assert.Equal(t, StatusDownloading, findEvent(t, events, 1, StatusDownloading).Status)
 	done := findEvent(t, events, 1, StatusDone)
-	assert.Equal(t, "mp3", done.Format)
+	assert.Equal(t, ContainerMP3, done.Format)
 	assert.Equal(t, StatusDownloading, findEvent(t, events, 2, StatusDownloading).Status)
 	failed := findEvent(t, events, 2, StatusError)
 	assert.Equal(t, "access denied", failed.Reason)
@@ -65,9 +65,9 @@ func TestRunSkipsUnavailableDuplicatesAndExistingFiles(t *testing.T) {
 
 	require.Len(t, events, 4)
 	assert.Equal(t, StatusDownloading, findEvent(t, events, 1, StatusDownloading).Status)
-	assert.Equal(t, "duplicate", findEvent(t, events, 2, StatusSkipped).Reason)
-	assert.Equal(t, "unavailable", findEvent(t, events, 3, StatusSkipped).Reason)
-	assert.Equal(t, "already exists", findEvent(t, events, 1, StatusSkipped).Reason)
+	assert.Equal(t, string(SkipDuplicate), findEvent(t, events, 2, StatusSkipped).Reason)
+	assert.Equal(t, string(SkipUnavailable), findEvent(t, events, 3, StatusSkipped).Reason)
+	assert.Equal(t, string(SkipAlreadyExists), findEvent(t, events, 1, StatusSkipped).Reason)
 }
 
 type blockingClient struct {
@@ -152,7 +152,7 @@ func TestRunRecoversWorkerPanicAndContinues(t *testing.T) {
 	panicEvent := findEvent(t, events, 1, StatusError)
 	assert.True(t, strings.HasPrefix(panicEvent.Reason, "panic: "))
 	done := findEvent(t, events, 2, StatusDone)
-	assert.Equal(t, "mp3", done.Format)
+	assert.Equal(t, ContainerMP3, done.Format)
 }
 
 func collect(events <-chan Event) []Event {

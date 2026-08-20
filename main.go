@@ -353,19 +353,11 @@ func formatBatchEvent(event batch.Event) string {
 			status = reason
 		}
 	}
-	return fmt.Sprintf("[%s] %s", status, formatTrackLabel(event.Track))
+	return fmt.Sprintf("[%s] %s", status, event.Track.DisplayLabel())
 }
 
 func formatTrackLabel(track model.Track) string {
-	title := strings.TrimSpace(track.FullTitle())
-	artists := strings.TrimSpace(track.ArtistsString())
-	if artists == "" {
-		return title
-	}
-	if title == "" {
-		return artists
-	}
-	return artists + " — " + title
+	return track.DisplayLabel()
 }
 
 func newDownloadLogger(stderr io.Writer) *utils.DownloadLogger {
