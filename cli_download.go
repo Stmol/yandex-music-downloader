@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 	"ya-music/batch"
-	"ya-music/ui"
+	"ya-music/source"
 	"ya-music/utils"
 	"ya-music/ya"
 	"ya-music/ya/model"
@@ -51,7 +51,7 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	tracks, err := ui.ResolveSourceTracks(client, options.link)
+	tracks, err := source.Resolve(client, options.link)
 	if err != nil {
 		fmt.Fprintf(stderr, "failed to resolve source: %v\n", err)
 		return 1
