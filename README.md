@@ -55,13 +55,13 @@ Available options:
 - `--timeout <seconds>` limits the download time for each audio file. Use `0`, the default, to disable the limit.
 - `--skip-cover` skips downloading and embedding cover art. Text metadata is still written.
 
-Each status update includes the track's source position. A track is reported when downloading starts and again when it finishes, for example:
+During the download, each track event is appended to stdout as it happens. A track first prints `[downloading] Artist — Track title`, then a final line such as `[done] Artist — Track title` or `[already exists] Artist — Track title`. Previous lines are never cleared or overwritten. Press `Ctrl+C` to stop scheduling remaining tracks: in-flight downloads can still finish, then the command prints `Interrupted: remaining tracks stayed queued` followed by the partial summary and exits with code 130.
 
 ```text
-  1. Artist — Track title — downloading
-  2. Artist — Another track — skipped: already exists
-  3. Artist — Restricted track — skipped: unavailable
-  1. Artist — Track title — done (mp3)
+[downloading] Artist — Track title
+[done] Artist — Track title
+[already exists] Artist — Another track
+[unavailable] Artist — Restricted track
 
 Finished: 1 downloaded, 2 skipped, 0 failed
 Output: ./downloads

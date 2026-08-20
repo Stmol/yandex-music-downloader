@@ -1,7 +1,9 @@
 package batch
 
 import (
+	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"ya-music/ya"
@@ -65,6 +67,60 @@ func TestRunSkipsUnavailableDuplicatesAndExistingFiles(t *testing.T) {
 	assert.Equal(t, "duplicate", findEvent(t, events, 2, StatusSkipped).Reason)
 	assert.Equal(t, "unavailable", findEvent(t, events, 3, StatusSkipped).Reason)
 	assert.Equal(t, "already exists", findEvent(t, events, 1, StatusSkipped).Reason)
+}
+
+type blockingClient struct {
+	started chan string
+	release chan struct{}
+	mu      sync.Mutex
+	called  []string
+}
+
+func (c *blockingClient) DownloadTrackWithOptions(track model.Track, _ string, _ ya.DownloadOptions) (string, error) {
+	c.mu.Lock()
+	c.called = append(c.called, track.ID.String())
+	c.mu.Unlock()
+	c.started <- track.ID.String()
+	<-c.release
+	return track.ID.String() + ".mp3", nil
+}
+
+func (c *blockingClient) calls() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.called...)
+}
+
+func TestRunStopsSchedulingTracksWhenContextIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := &blockingClient{
+		started: make(chan string, 1),
+		release: make(chan struct{}),
+	}
+
+	events := Run(Config{
+		Client: client,
+		Tracks: []model.Track{
+			{ID: "1", Title: "First", Available: true},
+			{ID: "2", Title: "Second", Available: true},
+		},
+		Concurrency: 1,
+		Context:     ctx,
+	})
+
+	first := <-events
+	assert.Equal(t, Event{Index: 1, Track: model.Track{ID: "1", Title: "First", Available: true}, Status: StatusDownloading}, first)
+	assert.Equal(t, "1", <-client.started)
+
+	cancel()
+	close(client.release)
+
+	remaining := collect(events)
+	assert.Len(t, remaining, 1)
+	assert.Equal(t, StatusDone, remaining[0].Status)
+	assert.Equal(t, 1, remaining[0].Index)
+	assert.Equal(t, []string{"1"}, client.calls())
 }
 
 func collect(events <-chan Event) []Event {

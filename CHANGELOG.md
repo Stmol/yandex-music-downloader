@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.13.1 - 2026-08-20
+- append each batch-download status as an immutable `[status] Artist — Track` line so previous events stay visible and are never overwritten
+- stop scheduling remaining batch tracks on Ctrl+C or SIGTERM so cancelled tracks stay queued, print `Interrupted: remaining tracks stayed queued`, then still emit the partial summary and exit 130
+
 ## v1.13 - 2026-08-19
 - added a non-interactive `yamdl download` command for downloading a track, album, playlist, or chart without opening the terminal UI
 - added required `--token` and `--link` options plus `--format`, `--output`, `--timeout`, and `--skip-cover` controls for batch downloads; MP3 and `./downloads` remain the defaults
