@@ -61,6 +61,28 @@ func TestConsumeDownloadEventsEmitHelperKeepsOrder(t *testing.T) {
 	}
 }
 
+func TestParseTUIOptionsRejectsPositionalArgs(t *testing.T) {
+	var stderr bytes.Buffer
+	_, exitCode := parseTUIOptions([]string{"download"}, &stderr)
+	if exitCode != 2 {
+		t.Fatalf("exit code = %d, want 2, stderr: %s", exitCode, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "unexpected command; use 'yamdl download --help' for batch downloads") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestParseTUIOptionsAcceptsTimeoutAndSkipCover(t *testing.T) {
+	var stderr bytes.Buffer
+	options, exitCode := parseTUIOptions([]string{"--timeout", "30", "--skip-cover"}, &stderr)
+	if exitCode != -1 {
+		t.Fatalf("exit code = %d, stderr: %s", exitCode, stderr.String())
+	}
+	if options.downloadTimeoutSeconds != 30 || !options.skipCover {
+		t.Fatalf("unexpected options: %#v", options)
+	}
+}
+
 func TestIsKnownProblematicTerm(t *testing.T) {
 	tests := []struct {
 		name string

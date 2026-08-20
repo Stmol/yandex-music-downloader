@@ -3,6 +3,7 @@ package batch
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -121,6 +122,37 @@ func TestRunStopsSchedulingTracksWhenContextIsCancelled(t *testing.T) {
 	assert.Equal(t, StatusDone, remaining[0].Status)
 	assert.Equal(t, 1, remaining[0].Index)
 	assert.Equal(t, []string{"1"}, client.calls())
+}
+
+type panicClient struct {
+	results map[string]fakeResult
+}
+
+func (c panicClient) DownloadTrackWithOptions(track model.Track, _ string, _ ya.DownloadOptions) (string, error) {
+	if track.ID.String() == "1" {
+		panic("boom")
+	}
+	result := c.results[track.ID.String()]
+	return result.filename, result.err
+}
+
+func TestRunRecoversWorkerPanicAndContinues(t *testing.T) {
+	events := collect(Run(Config{
+		Client: panicClient{results: map[string]fakeResult{
+			"2": {filename: "second.mp3"},
+		}},
+		Tracks: []model.Track{
+			{ID: "1", Title: "First", Available: true},
+			{ID: "2", Title: "Second", Available: true},
+		},
+		Concurrency: 1,
+	}))
+
+	require.Len(t, events, 4)
+	panicEvent := findEvent(t, events, 1, StatusError)
+	assert.True(t, strings.HasPrefix(panicEvent.Reason, "panic: "))
+	done := findEvent(t, events, 2, StatusDone)
+	assert.Equal(t, "mp3", done.Format)
 }
 
 func collect(events <-chan Event) []Event {
