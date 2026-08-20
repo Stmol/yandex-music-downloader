@@ -1,6 +1,7 @@
 package batch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -40,11 +41,16 @@ type Config struct {
 	OutputDir   string
 	Options     ya.DownloadOptions
 	Concurrency int
+	Context     context.Context
 }
 
 // Run downloads all eligible tracks and reports immutable lifecycle events.
 func Run(config Config) <-chan Event {
 	events := make(chan Event)
+	ctx := config.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	concurrency := config.Concurrency
 	if concurrency <= 0 {
 		concurrency = DefaultConcurrency
@@ -59,6 +65,10 @@ func Run(config Config) <-chan Event {
 		var workers sync.WaitGroup
 
 		for position, track := range config.Tracks {
+			if ctx.Err() != nil {
+				break
+			}
+
 			event := Event{Index: position + 1, Track: track}
 			if !track.Available {
 				event.Status = StatusSkipped
@@ -84,9 +94,20 @@ func Run(config Config) <-chan Event {
 			seenIDs[id] = struct{}{}
 			seenNames[name] = struct{}{}
 
+			acquired := false
+			select {
+			case sem <- struct{}{}:
+				acquired = true
+			case <-ctx.Done():
+			}
+			if !acquired {
+				break
+			}
+
 			workers.Add(1)
 			go func(event Event) {
 				defer workers.Done()
+				defer func() { <-sem }()
 				defer func() {
 					if recovered := recover(); recovered != nil {
 						event.Status = StatusError
@@ -95,8 +116,9 @@ func Run(config Config) <-chan Event {
 					}
 				}()
 
-				sem <- struct{}{}
-				defer func() { <-sem }()
+				if ctx.Err() != nil {
+					return
+				}
 
 				event.Status = StatusDownloading
 				events <- event

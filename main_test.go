@@ -76,8 +76,21 @@ func TestFormatBatchEventAndSummary(t *testing.T) {
 		Artists: []model.Artist{{Name: "Artist"}},
 	}
 	event := batch.Event{Index: 2, Track: track, Status: batch.StatusDone, Format: "m4a"}
-	if got, want := formatBatchEvent(event), "  2. Artist — Track — done (m4a)"; got != want {
-		t.Fatalf("formatBatchEvent() = %q, want %q", got, want)
+	tests := []struct {
+		event batch.Event
+		want  string
+	}{
+		{event: event, want: "[done] Artist — Track"},
+		{event: batch.Event{Track: track, Status: batch.StatusDownloading}, want: "[downloading] Artist — Track"},
+		{event: batch.Event{Track: track, Status: batch.StatusSkipped, Reason: "already exists"}, want: "[already exists] Artist — Track"},
+		{event: batch.Event{Track: track, Status: batch.StatusSkipped, Reason: "unavailable"}, want: "[unavailable] Artist — Track"},
+		{event: batch.Event{Track: track, Status: batch.StatusSkipped, Reason: "duplicate"}, want: "[duplicate] Artist — Track"},
+		{event: batch.Event{Track: track, Status: batch.StatusError, Reason: "access denied"}, want: "[error] Artist — Track"},
+	}
+	for _, tt := range tests {
+		if got := formatBatchEvent(tt.event); got != tt.want {
+			t.Fatalf("formatBatchEvent() = %q, want %q", got, tt.want)
+		}
 	}
 
 	summary := batchSummary{}
@@ -86,6 +99,38 @@ func TestFormatBatchEventAndSummary(t *testing.T) {
 	summary.add(batch.Event{Status: batch.StatusError})
 	if summary != (batchSummary{downloaded: 1, skipped: 1, failed: 1}) {
 		t.Fatalf("unexpected summary: %#v", summary)
+	}
+}
+
+func TestConsumeDownloadEventsWritesEventsAsTheyArrive(t *testing.T) {
+	tracks := []model.Track{
+		{Title: "First", Artists: []model.Artist{{Name: "One"}}},
+		{Title: "Second", Artists: []model.Artist{{Name: "Two"}}},
+	}
+	events := make(chan batch.Event, 3)
+	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDownloading}
+	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDone, Format: "mp3"}
+	events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: "flac"}
+	close(events)
+
+	var stdout bytes.Buffer
+	summary, interrupted := consumeDownloadEvents(&stdout, events, nil, nil)
+
+	if interrupted {
+		t.Fatal("expected interrupted = false")
+	}
+	if summary != (batchSummary{downloaded: 2}) {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if got, want := stdout.String(), strings.Join([]string{
+		"[downloading] Two — Second",
+		"[done] Two — Second",
+		"[done] One — First",
+	}, "\n")+"\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if strings.Contains(stdout.String(), "\x1b") {
+		t.Fatalf("output contains ANSI escape sequence: %q", stdout.String())
 	}
 }
 
@@ -104,10 +149,15 @@ func TestProblematicTermWarning(t *testing.T) {
 }
 
 func TestConsumeDownloadEventsDrainsAllEventsWithoutInterrupt(t *testing.T) {
+	tracks := []model.Track{
+		{Title: "First", Artists: []model.Artist{{Name: "One"}}},
+		{Title: "Second", Artists: []model.Artist{{Name: "Two"}}},
+		{Title: "Third", Artists: []model.Artist{{Name: "Three"}}},
+	}
 	events := make(chan batch.Event, 3)
-	events <- batch.Event{Index: 1, Status: batch.StatusDone}
-	events <- batch.Event{Index: 2, Status: batch.StatusSkipped}
-	events <- batch.Event{Index: 3, Status: batch.StatusError}
+	events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: "mp3"}
+	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusSkipped, Reason: "duplicate"}
+	events <- batch.Event{Index: 3, Track: tracks[2], Status: batch.StatusError, Reason: "access denied"}
 	close(events)
 
 	var stdout bytes.Buffer
@@ -131,14 +181,17 @@ func TestConsumeDownloadEventsDrainsAllEventsWithoutInterrupt(t *testing.T) {
 }
 
 func TestConsumeDownloadEventsCallsCancelAndDrainsOnInterrupt(t *testing.T) {
+	tracks := []model.Track{
+		{Title: "First", Artists: []model.Artist{{Name: "One"}}},
+		{Title: "Second", Artists: []model.Artist{{Name: "Two"}}},
+	}
 	events := make(chan batch.Event)
 	interrupt := make(chan struct{})
 
 	go func() {
-		events <- batch.Event{Index: 1, Status: batch.StatusDownloading}
+		events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDownloading}
 		close(interrupt)
-		events <- batch.Event{Index: 1, Status: batch.StatusDone}
-		events <- batch.Event{Index: 2, Status: batch.StatusError}
+		events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: "mp3"}
 		close(events)
 	}()
 
@@ -154,7 +207,14 @@ func TestConsumeDownloadEventsCallsCancelAndDrainsOnInterrupt(t *testing.T) {
 	if !cancelCalled {
 		t.Fatal("cancel should be called on interrupt")
 	}
-	if summary.downloaded != 1 || summary.failed != 1 {
+	if summary != (batchSummary{downloaded: 1}) {
 		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if got, want := stdout.String(), strings.Join([]string{
+		"[downloading] One — First",
+		"[done] One — First",
+		"Interrupted: remaining tracks stayed queued",
+	}, "\n")+"\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 }

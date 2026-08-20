@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -8,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 	"ya-music/batch"
@@ -174,17 +174,19 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	stop := make(chan struct{})
-	defer close(stop)
+	signalStop := make(chan struct{})
+	defer close(signalStop)
 
 	interrupt := make(chan struct{})
 	go func() {
 		select {
 		case <-sigCh:
 			close(interrupt)
-		case <-stop:
+		case <-signalStop:
 		}
 	}()
+	batchContext, cancelBatch := context.WithCancel(context.Background())
+	defer cancelBatch()
 
 	summary, interrupted := consumeDownloadEvents(
 		stdout,
@@ -192,13 +194,17 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 			Client:    client,
 			Tracks:    tracks,
 			OutputDir: options.output,
+			Context:   batchContext,
 			Options: ya.DownloadOptions{
 				SkipCover:   options.skipCover,
 				AudioFormat: options.format,
 			},
 		}),
 		interrupt,
-		client.Cancel,
+		func() {
+			cancelBatch()
+			client.Cancel()
+		},
 	)
 
 	fmt.Fprintf(stdout, "\nFinished: %d downloaded, %d skipped, %d failed\nOutput: %s\n",
@@ -294,38 +300,56 @@ func consumeDownloadEvents(
 	interrupt <-chan struct{},
 	cancel func(),
 ) (summary batchSummary, interrupted bool) {
-	var interruptedFlag atomic.Bool
+	for events != nil {
+		if interrupt == nil {
+			event, ok := <-events
+			if !ok {
+				break
+			}
+			fmt.Fprintln(stdout, formatBatchEvent(event))
+			summary.add(event)
+			continue
+		}
 
-	if interrupt != nil && cancel != nil {
-		go func() {
-			<-interrupt
-			interruptedFlag.Store(true)
-			cancel()
-		}()
+		select {
+		case <-interrupt:
+			interrupted = true
+			interrupt = nil
+			if cancel != nil {
+				cancel()
+			}
+		case event, ok := <-events:
+			if !ok {
+				select {
+				case <-interrupt:
+					interrupted = true
+					if cancel != nil {
+						cancel()
+					}
+				default:
+				}
+				events = nil
+				continue
+			}
+			fmt.Fprintln(stdout, formatBatchEvent(event))
+			summary.add(event)
+		}
 	}
 
-	for event := range events {
-		fmt.Fprintln(stdout, formatBatchEvent(event))
-		summary.add(event)
+	if interrupted {
+		fmt.Fprintln(stdout, "Interrupted: remaining tracks stayed queued")
 	}
-
-	return summary, interruptedFlag.Load()
+	return summary, interrupted
 }
 
 func formatBatchEvent(event batch.Event) string {
-	label := formatTrackLabel(event.Track)
-	switch event.Status {
-	case batch.StatusDownloading:
-		return fmt.Sprintf("%3d. %s — downloading", event.Index, label)
-	case batch.StatusDone:
-		return fmt.Sprintf("%3d. %s — done (%s)", event.Index, label, event.Format)
-	case batch.StatusSkipped:
-		return fmt.Sprintf("%3d. %s — skipped: %s", event.Index, label, event.Reason)
-	case batch.StatusError:
-		return fmt.Sprintf("%3d. %s — error: %s", event.Index, label, event.Reason)
-	default:
-		return fmt.Sprintf("%3d. %s — %s", event.Index, label, event.Status)
+	status := string(event.Status)
+	if event.Status == batch.StatusSkipped {
+		if reason := strings.TrimSpace(event.Reason); reason != "" {
+			status = reason
+		}
 	}
+	return fmt.Sprintf("[%s] %s", status, formatTrackLabel(event.Track))
 }
 
 func formatTrackLabel(track model.Track) string {
