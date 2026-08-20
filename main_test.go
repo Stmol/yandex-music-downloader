@@ -2,12 +2,64 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 	"ya-music/batch"
 	"ya-music/ya"
 	"ya-music/ya/model"
 )
+
+func TestInterruptBatchOnlyCancelsBatchContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	clientCancelled := false
+	wrappedCancel := func() {
+		cancel()
+		clientCancelled = true
+	}
+
+	interruptBatch(cancel)
+
+	if ctx.Err() == nil {
+		t.Fatal("expected batch context to be cancelled")
+	}
+	if clientCancelled {
+		t.Fatal("interruptBatch must not invoke client cancel")
+	}
+
+	_ = wrappedCancel
+}
+
+func TestConsumeDownloadEventsEmitHelperKeepsOrder(t *testing.T) {
+	tracks := []model.Track{
+		{Title: "First", Artists: []model.Artist{{Name: "One"}}},
+		{Title: "Second", Artists: []model.Artist{{Name: "Two"}}},
+	}
+	events := make(chan batch.Event, 3)
+	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDownloading}
+	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDone, Format: "mp3"}
+	events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: "flac"}
+	close(events)
+
+	var stdout bytes.Buffer
+	summary, interrupted := consumeDownloadEvents(&stdout, events, nil, nil)
+
+	if interrupted {
+		t.Fatal("expected interrupted = false")
+	}
+	if summary != (batchSummary{downloaded: 2}) {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if got, want := stdout.String(), strings.Join([]string{
+		"[downloading] Two — Second",
+		"[done] Two — Second",
+		"[done] One — First",
+	}, "\n")+"\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
 
 func TestIsKnownProblematicTerm(t *testing.T) {
 	tests := []struct {

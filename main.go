@@ -201,10 +201,7 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 			},
 		}),
 		interrupt,
-		func() {
-			cancelBatch()
-			client.Cancel()
-		},
+		func() { interruptBatch(cancelBatch) },
 	)
 
 	fmt.Fprintf(stdout, "\nFinished: %d downloaded, %d skipped, %d failed\nOutput: %s\n",
@@ -294,20 +291,28 @@ func (s *batchSummary) add(event batch.Event) {
 	}
 }
 
+func interruptBatch(cancelBatch context.CancelFunc) {
+	cancelBatch()
+}
+
 func consumeDownloadEvents(
 	stdout io.Writer,
 	events <-chan batch.Event,
 	interrupt <-chan struct{},
 	cancel func(),
 ) (summary batchSummary, interrupted bool) {
+	emit := func(event batch.Event) {
+		fmt.Fprintln(stdout, formatBatchEvent(event))
+		summary.add(event)
+	}
+
 	for events != nil {
 		if interrupt == nil {
 			event, ok := <-events
 			if !ok {
 				break
 			}
-			fmt.Fprintln(stdout, formatBatchEvent(event))
-			summary.add(event)
+			emit(event)
 			continue
 		}
 
@@ -331,8 +336,7 @@ func consumeDownloadEvents(
 				events = nil
 				continue
 			}
-			fmt.Fprintln(stdout, formatBatchEvent(event))
-			summary.add(event)
+			emit(event)
 		}
 	}
 
