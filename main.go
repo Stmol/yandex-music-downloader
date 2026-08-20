@@ -1,54 +1,18 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
-	"ya-music/batch"
 	"ya-music/ui"
 	"ya-music/utils"
 	"ya-music/ya"
-	"ya-music/ya/model"
 
 	tea "charm.land/bubbletea/v2"
 )
-
-const defaultOutputDir = "./downloads"
-
-type sharedFlags struct {
-	timeoutSeconds int
-	skipCover      bool
-}
-
-type parseOutcome[T any] struct {
-	options  T
-	exitCode int
-	proceed  bool
-}
-
-type tuiOptions struct {
-	sharedFlags
-}
-
-type downloadOptions struct {
-	token  string
-	link   string
-	format ya.AudioFormat
-	output string
-	sharedFlags
-}
-
-func registerSharedFlags(fs *flag.FlagSet, dest *sharedFlags) {
-	fs.IntVar(&dest.timeoutSeconds, "timeout", 0, "download timeout in seconds (0 disables timeout)")
-	fs.BoolVar(&dest.skipCover, "skip-cover", false, "skip downloading and embedding track cover images")
-}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -73,16 +37,13 @@ func runTUI(args []string, stderr io.Writer) int {
 		return 2
 	}
 
-	downloadLogger := newDownloadLogger(stderr)
+	downloadLogger, client := newLoggedClient(options.timeoutSeconds, stderr)
 	defer downloadLogger.Close()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	httpClient := utils.NewHttpClientWithLogger(downloadLogger)
-	httpClient.SetDownloadTimeout(time.Duration(options.timeoutSeconds) * time.Second)
-	client := ya.NewClient(httpClient)
 	downloadOptions := ya.DownloadOptions{SkipCover: options.skipCover}
 	prog := tea.NewProgram(ui.StartUi(client, downloadOptions))
 
@@ -108,282 +69,6 @@ func runTUI(args []string, stderr io.Writer) int {
 
 	downloadLogger.Info("application stopped")
 	return 0
-}
-
-func parseTUIOptions(args []string, stderr io.Writer) parseOutcome[tuiOptions] {
-	options := tuiOptions{}
-	flags := flag.NewFlagSet("yamdl", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	registerSharedFlags(flags, &options.sharedFlags)
-	if err := flags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return parseOutcome[tuiOptions]{exitCode: 0}
-		}
-		return parseOutcome[tuiOptions]{exitCode: 2}
-	}
-	if flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "unexpected command; use 'yamdl download --help' for batch downloads")
-		return parseOutcome[tuiOptions]{exitCode: 2}
-	}
-	if options.timeoutSeconds < 0 {
-		fmt.Fprintln(stderr, "timeout must be >= 0 seconds")
-		return parseOutcome[tuiOptions]{exitCode: 2}
-	}
-	return parseOutcome[tuiOptions]{options: options, proceed: true}
-}
-
-func runDownload(args []string, stdout, stderr io.Writer) int {
-	parsed := parseDownloadOptions(args, stderr)
-	if !parsed.proceed {
-		return parsed.exitCode
-	}
-	options := parsed.options
-
-	downloadLogger := newDownloadLogger(stderr)
-	defer downloadLogger.Close()
-	httpClient := utils.NewHttpClientWithLogger(downloadLogger)
-	httpClient.SetDownloadTimeout(time.Duration(options.timeoutSeconds) * time.Second)
-	client := ya.NewClient(httpClient)
-	client.SetToken(options.token)
-
-	account, err := client.AccountStatus()
-	if err != nil || account.Uid == 0 {
-		if err == nil {
-			err = errors.New("account has no user ID")
-		}
-		fmt.Fprintf(stderr, "failed to validate token: %v\n", err)
-		return 1
-	}
-
-	tracks, err := ui.ResolveSourceTracks(client, options.link)
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to resolve source: %v\n", err)
-		return 1
-	}
-	if len(tracks) == 0 {
-		fmt.Fprintln(stderr, "failed to resolve source: no tracks found")
-		return 1
-	}
-	if err := utils.CreateDirIfNotExists(options.output); err != nil {
-		fmt.Fprintf(stderr, "failed to create output directory: %v\n", err)
-		return 1
-	}
-	outputInfo, err := os.Stat(options.output)
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to inspect output directory: %v\n", err)
-		return 1
-	}
-	if !outputInfo.IsDir() {
-		fmt.Fprintln(stderr, "--output must be a directory")
-		return 2
-	}
-
-	downloadLogger.Info("batch download started",
-		"source", utils.SanitizeURL(options.link),
-		"total_tracks", len(tracks),
-		"format", options.format,
-		"output", options.output,
-	)
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
-
-	signalStop := make(chan struct{})
-	defer close(signalStop)
-
-	interrupt := make(chan struct{})
-	go func() {
-		select {
-		case <-sigCh:
-			close(interrupt)
-		case <-signalStop:
-		}
-	}()
-	batchContext, cancelBatch := context.WithCancel(context.Background())
-	defer cancelBatch()
-
-	summary, interrupted := consumeDownloadEvents(
-		stdout,
-		batch.Run(batch.Config{
-			Client:    client,
-			Tracks:    tracks,
-			OutputDir: options.output,
-			Context:   batchContext,
-			Options: ya.DownloadOptions{
-				SkipCover:   options.skipCover,
-				AudioFormat: options.format,
-			},
-		}),
-		interrupt,
-		func() { interruptBatch(cancelBatch) },
-	)
-
-	fmt.Fprintf(stdout, "\nFinished: %d downloaded, %d skipped, %d failed\nOutput: %s\n",
-		summary.downloaded,
-		summary.skipped,
-		summary.failed,
-		options.output,
-	)
-	downloadLogger.Info("batch download finished",
-		"downloaded", summary.downloaded,
-		"skipped", summary.skipped,
-		"failed", summary.failed,
-		"interrupted", interrupted,
-	)
-	if interrupted {
-		return 130
-	}
-	return 0
-}
-
-func parseDownloadOptions(args []string, stderr io.Writer) parseOutcome[downloadOptions] {
-	options := downloadOptions{format: ya.AudioFormatMP3, output: defaultOutputDir}
-	flags := flag.NewFlagSet("yamdl download", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	flags.StringVar(&options.token, "token", "", "Yandex Music authentication token (required)")
-	flags.StringVar(&options.link, "link", "", "Yandex Music track, album, playlist, or chart URL (required)")
-	format := string(options.format)
-	flags.StringVar(&format, "format", format, "audio format: mp3 or flac")
-	flags.StringVar(&options.output, "output", options.output, "directory for downloaded tracks")
-	registerSharedFlags(flags, &options.sharedFlags)
-	flags.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: yamdl download --token TOKEN --link URL [options]")
-		flags.PrintDefaults()
-	}
-	if err := flags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return parseOutcome[downloadOptions]{exitCode: 0}
-		}
-		return parseOutcome[downloadOptions]{exitCode: 2}
-	}
-	if flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "download does not accept positional arguments")
-		return parseOutcome[downloadOptions]{exitCode: 2}
-	}
-	if strings.TrimSpace(options.token) == "" {
-		fmt.Fprintln(stderr, "--token is required")
-		return parseOutcome[downloadOptions]{exitCode: 2}
-	}
-	if strings.TrimSpace(options.link) == "" {
-		fmt.Fprintln(stderr, "--link is required")
-		return parseOutcome[downloadOptions]{exitCode: 2}
-	}
-	if options.timeoutSeconds < 0 {
-		fmt.Fprintln(stderr, "timeout must be >= 0 seconds")
-		return parseOutcome[downloadOptions]{exitCode: 2}
-	}
-	options.format = ya.AudioFormat(strings.ToLower(strings.TrimSpace(format)))
-	if options.format != ya.AudioFormatMP3 && options.format != ya.AudioFormatFLAC {
-		fmt.Fprintln(stderr, "--format must be mp3 or flac")
-		return parseOutcome[downloadOptions]{exitCode: 2}
-	}
-	options.output = strings.TrimSpace(options.output)
-	if options.output == "" {
-		fmt.Fprintln(stderr, "--output must not be empty")
-		return parseOutcome[downloadOptions]{exitCode: 2}
-	}
-	options.token = strings.TrimSpace(options.token)
-	options.link = strings.TrimSpace(options.link)
-	return parseOutcome[downloadOptions]{options: options, proceed: true}
-}
-
-type batchSummary struct {
-	downloaded int
-	skipped    int
-	failed     int
-}
-
-func (s *batchSummary) add(event batch.Event) {
-	switch event.Status {
-	case batch.StatusDone:
-		s.downloaded++
-	case batch.StatusSkipped:
-		s.skipped++
-	case batch.StatusError:
-		s.failed++
-	}
-}
-
-func interruptBatch(cancelBatch context.CancelFunc) {
-	cancelBatch()
-}
-
-func consumeDownloadEvents(
-	stdout io.Writer,
-	events <-chan batch.Event,
-	interrupt <-chan struct{},
-	cancel func(),
-) (summary batchSummary, interrupted bool) {
-	emit := func(event batch.Event) {
-		fmt.Fprintln(stdout, formatBatchEvent(event))
-		summary.add(event)
-	}
-
-	for events != nil {
-		if interrupt == nil {
-			event, ok := <-events
-			if !ok {
-				break
-			}
-			emit(event)
-			continue
-		}
-
-		select {
-		case <-interrupt:
-			interrupted = true
-			interrupt = nil
-			if cancel != nil {
-				cancel()
-			}
-		case event, ok := <-events:
-			if !ok {
-				select {
-				case <-interrupt:
-					interrupted = true
-					if cancel != nil {
-						cancel()
-					}
-				default:
-				}
-				events = nil
-				continue
-			}
-			emit(event)
-		}
-	}
-
-	if interrupted {
-		fmt.Fprintln(stdout, "Interrupted: remaining tracks stayed queued")
-	}
-	return summary, interrupted
-}
-
-func formatBatchEvent(event batch.Event) string {
-	status := string(event.Status)
-	if event.Status == batch.StatusSkipped {
-		if reason := strings.TrimSpace(event.Reason); reason != "" {
-			status = reason
-		}
-	}
-	return fmt.Sprintf("[%s] %s", status, event.Track.DisplayLabel())
-}
-
-func formatTrackLabel(track model.Track) string {
-	return track.DisplayLabel()
-}
-
-func newDownloadLogger(stderr io.Writer) *utils.DownloadLogger {
-	downloadLogger, err := utils.NewDownloadLogger(utils.DefaultDownloadLogPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to initialize download logger: %v\n", err)
-		downloadLogger = utils.NewDiscardDownloadLogger()
-	}
-	if err := downloadLogger.Reset(); err != nil {
-		fmt.Fprintf(stderr, "failed to reset download log file: %v\n", err)
-	}
-	return downloadLogger
 }
 
 func isKnownProblematicTerm(term string) bool {
