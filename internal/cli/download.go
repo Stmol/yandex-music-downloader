@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 	"time"
-	"ya-music/batch"
+	"ya-music/internal/batch"
 	"ya-music/source"
 	"ya-music/utils"
 	"ya-music/ya"

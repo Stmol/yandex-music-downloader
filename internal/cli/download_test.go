@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -11,80 +11,171 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"ya-music/batch"
+	"ya-music/internal/batch"
 	"ya-music/ya/model"
 )
 
-const signalTestTimeout = time.Second
+func TestConsumeDownloadEventsEmitHelperKeepsOrder(t *testing.T) {
+	tracks := []model.Track{
+		{Title: "First", Artists: []model.Artist{{Name: "One"}}},
+		{Title: "Second", Artists: []model.Artist{{Name: "Two"}}},
+	}
+	events := make(chan batch.Event, 3)
+	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDownloading}
+	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDone, Format: batch.ContainerMP3}
+	events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: batch.ContainerFLAC}
+	close(events)
 
-func TestInterruptSignalsRouteFirstAndSecondSIGINTAndSIGTERM(t *testing.T) {
+	var stdout bytes.Buffer
+	summary, interrupted := consumeDownloadEvents(&stdout, events, nil, nil, nil, nil)
+
+	if interrupted {
+		t.Fatal("expected interrupted = false")
+	}
+	if summary != (batchSummary{downloaded: 2}) {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if got, want := stdout.String(), strings.Join([]string{
+		"[downloading] Two — Second",
+		"[done] Two — Second",
+		"[done] One — First",
+	}, "\n")+"\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestFormatBatchEventAndSummary(t *testing.T) {
+	track := model.Track{
+		Title:   "Track",
+		Artists: []model.Artist{{Name: "Artist"}},
+	}
+	event := batch.Event{Index: 2, Track: track, Status: batch.StatusDone, Format: batch.ContainerM4A}
 	tests := []struct {
-		name   string
-		signal os.Signal
+		event batch.Event
+		want  string
 	}{
-		{name: "SIGINT", signal: syscall.SIGINT},
-		{name: "SIGTERM", signal: syscall.SIGTERM},
+		{event: event, want: "[done] Artist — Track"},
+		{event: batch.Event{Track: track, Status: batch.StatusDownloading}, want: "[downloading] Artist — Track"},
+		{event: batch.Event{Track: track, Status: batch.StatusSkipped, Reason: "already exists"}, want: "[already exists] Artist — Track"},
+		{event: batch.Event{Track: track, Status: batch.StatusSkipped, Reason: "unavailable"}, want: "[unavailable] Artist — Track"},
+		{event: batch.Event{Track: track, Status: batch.StatusSkipped, Reason: "duplicate"}, want: "[duplicate] Artist — Track"},
+		{event: batch.Event{Track: track, Status: batch.StatusError, Reason: "access denied"}, want: "[error] Artist — Track"},
 	}
-
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			interrupts := newInterruptSignals()
-			t.Cleanup(interrupts.stop)
-			process, err := os.FindProcess(os.Getpid())
-			if err != nil {
-				t.Fatalf("find current process: %v", err)
-			}
+		if got := formatBatchEvent(tt.event); got != tt.want {
+			t.Fatalf("formatBatchEvent() = %q, want %q", got, tt.want)
+		}
+	}
 
-			if err := process.Signal(tt.signal); err != nil {
-				t.Fatalf("send first %s: %v", tt.name, err)
-			}
-			waitForSignalStage(t, interrupts.first, "first")
-			assertSignalStagePending(t, interrupts.force, "force")
-
-			if err := process.Signal(tt.signal); err != nil {
-				t.Fatalf("send second %s: %v", tt.name, err)
-			}
-			waitForSignalStage(t, interrupts.force, "force")
-		})
+	summary := batchSummary{}
+	summary.add(event)
+	summary.add(batch.Event{Status: batch.StatusSkipped})
+	summary.add(batch.Event{Status: batch.StatusError})
+	if summary != (batchSummary{downloaded: 1, skipped: 1, failed: 1}) {
+		t.Fatalf("unexpected summary: %#v", summary)
 	}
 }
 
-func TestInterruptSignalsStopIsIdempotent(t *testing.T) {
-	signalCh := make(chan os.Signal, 2)
-	var unregisterCalls atomic.Int32
-	interrupts := routeInterruptSignals(signalCh, func() {
-		unregisterCalls.Add(1)
-	})
+func TestConsumeDownloadEventsWritesEventsAsTheyArrive(t *testing.T) {
+	tracks := []model.Track{
+		{Title: "First", Artists: []model.Artist{{Name: "One"}}},
+		{Title: "Second", Artists: []model.Artist{{Name: "Two"}}},
+	}
+	events := make(chan batch.Event, 3)
+	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDownloading}
+	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusDone, Format: batch.ContainerMP3}
+	events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: batch.ContainerFLAC}
+	close(events)
 
-	interrupts.stop()
-	interrupts.stop()
-	if got := unregisterCalls.Load(); got != 1 {
-		t.Fatalf("unregister calls = %d, want 1", got)
+	var stdout bytes.Buffer
+	summary, interrupted := consumeDownloadEvents(&stdout, events, nil, nil, nil, nil)
+
+	if interrupted {
+		t.Fatal("expected interrupted = false")
+	}
+	if summary != (batchSummary{downloaded: 2}) {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if got, want := stdout.String(), strings.Join([]string{
+		"[downloading] Two — Second",
+		"[done] Two — Second",
+		"[done] One — First",
+	}, "\n")+"\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if strings.Contains(stdout.String(), "\x1b") {
+		t.Fatalf("output contains ANSI escape sequence: %q", stdout.String())
 	}
 }
 
-func TestInterruptSignalsFlushKeepsRouterRegisteredAndRunning(t *testing.T) {
-	signalCh := make(chan os.Signal, 1)
-	var unregisterCalls atomic.Int32
-	interrupts := routeInterruptSignals(signalCh, func() {
-		unregisterCalls.Add(1)
-	})
-	t.Cleanup(interrupts.stop)
-
-	interrupts.flush()
-	if got := unregisterCalls.Load(); got != 0 {
-		t.Fatalf("unregister calls after flush = %d, want 0", got)
+func TestConsumeDownloadEventsDrainsAllEventsWithoutInterrupt(t *testing.T) {
+	tracks := []model.Track{
+		{Title: "First", Artists: []model.Artist{{Name: "One"}}},
+		{Title: "Second", Artists: []model.Artist{{Name: "Two"}}},
+		{Title: "Third", Artists: []model.Artist{{Name: "Three"}}},
 	}
+	events := make(chan batch.Event, 3)
+	events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: batch.ContainerMP3}
+	events <- batch.Event{Index: 2, Track: tracks[1], Status: batch.StatusSkipped, Reason: "duplicate"}
+	events <- batch.Event{Index: 3, Track: tracks[2], Status: batch.StatusError, Reason: "access denied"}
+	close(events)
 
-	signalCh <- syscall.SIGTERM
-	waitForSignalStage(t, interrupts.first, "first signal after flush")
-	assertSignalStagePending(t, interrupts.force, "force signal after flush")
+	var stdout bytes.Buffer
+	cancelCalled := false
+	summary, interrupted := consumeDownloadEvents(&stdout, events, make(chan struct{}), nil, func() {
+		cancelCalled = true
+	}, nil)
 
-	interrupts.stop()
-	interrupts.stop()
-	if got := unregisterCalls.Load(); got != 1 {
-		t.Fatalf("unregister calls after stop = %d, want 1", got)
+	if interrupted {
+		t.Fatal("expected interrupted = false")
+	}
+	if cancelCalled {
+		t.Fatal("cancel should not be called without interrupt")
+	}
+	if summary != (batchSummary{downloaded: 1, skipped: 1, failed: 1}) {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if strings.Count(stdout.String(), "\n") != 3 {
+		t.Fatalf("expected 3 event lines, got:\n%s", stdout.String())
+	}
+}
+
+func TestConsumeDownloadEventsCallsCancelAndDrainsOnInterrupt(t *testing.T) {
+	tracks := []model.Track{
+		{Title: "First", Artists: []model.Artist{{Name: "One"}}},
+		{Title: "Second", Artists: []model.Artist{{Name: "Two"}}},
+	}
+	events := make(chan batch.Event)
+	interrupt := make(chan struct{})
+
+	go func() {
+		events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDownloading}
+		close(interrupt)
+		events <- batch.Event{Index: 1, Track: tracks[0], Status: batch.StatusDone, Format: batch.ContainerMP3}
+		close(events)
+	}()
+
+	var stdout bytes.Buffer
+	cancelCalled := false
+	summary, interrupted := consumeDownloadEvents(&stdout, events, interrupt, nil, func() {
+		cancelCalled = true
+	}, nil)
+
+	if !interrupted {
+		t.Fatal("expected interrupted = true")
+	}
+	if !cancelCalled {
+		t.Fatal("cancel should be called on interrupt")
+	}
+	if summary != (batchSummary{downloaded: 1}) {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if got, want := stdout.String(), strings.Join([]string{
+		"[downloading] One — First",
+		"[done] One — First",
+		"Interrupted: remaining tracks stayed queued",
+	}, "\n")+"\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 }
 
@@ -374,24 +465,6 @@ func (*blockingSourcePreflightClient) PlaylistByUUID(string) (*model.Playlist, e
 
 func (*blockingSourcePreflightClient) Chart(string) (*model.Playlist, error) {
 	panic("Chart must not be called for a track URL")
-}
-
-func waitForSignalStage(t *testing.T, stage <-chan struct{}, name string) {
-	t.Helper()
-	select {
-	case <-stage:
-	case <-time.After(signalTestTimeout):
-		t.Fatalf("timed out waiting for %s", name)
-	}
-}
-
-func assertSignalStagePending(t *testing.T, stage <-chan struct{}, name string) {
-	t.Helper()
-	select {
-	case <-stage:
-		t.Fatalf("%s happened too early", name)
-	default:
-	}
 }
 
 func waitForConsumeResult(t *testing.T, results <-chan consumeResult) consumeResult {

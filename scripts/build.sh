@@ -35,7 +35,7 @@ for platform in "${PLATFORMS[@]}"; do
     fi
     
     echo "Building for $GOOS/$GOARCH..."
-    GOOS=$GOOS GOARCH=$GOARCH go build -o "$OUTPUT_NAME" .
+    GOOS=$GOOS GOARCH=$GOARCH go build -o "$OUTPUT_NAME" ./cmd/yamdl
     
     # Zip archive
     ZIP_NAME="$OUTPUT_DIR/${APP_NAME}_${VERSION}_${GOOS}_${GOARCH}.zip"

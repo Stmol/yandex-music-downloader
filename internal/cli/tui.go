@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"fmt"
@@ -13,17 +13,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 )
-
-func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
-}
-
-func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) > 0 && args[0] == "download" {
-		return runDownload(args[1:], stdout, stderr)
-	}
-	return runTUI(args, stderr)
-}
 
 func runTUI(args []string, stderr io.Writer) int {
 	parsed := parseTUIOptions(args, stderr)

@@ -34,6 +34,21 @@ A GUI application for downloading tracks from the Yandex Music streaming service
 -   Optional: set a download timeout in seconds: `./yamdl --timeout 180`
 -   Optional: skip cover download and embedding to save time and traffic: `./yamdl --skip-cover=true`
 
+## Development
+
+Run the application from the command package:
+
+```bash
+go run ./cmd/yamdl
+go build ./cmd/yamdl
+```
+
+Run the complete test suite with:
+
+```bash
+go test ./...
+```
+
 ## Command-Line Downloads
 
 Use the `download` subcommand to fetch a track, album, playlist, or chart without opening the terminal UI:
