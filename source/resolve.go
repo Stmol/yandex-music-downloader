@@ -27,6 +27,14 @@ func ResolveRef(client Client, ref *Ref) ([]model.Track, error) {
 	return resolveRef(client, ref)
 }
 
+func resolvePlaylist(load func() (*model.Playlist, error)) ([]model.Track, error) {
+	playlist, err := load()
+	if err != nil {
+		return nil, err
+	}
+	return playlist.TracksList(), nil
+}
+
 func resolveRef(client Client, ref *Ref) ([]model.Track, error) {
 	switch ref.Kind {
 	case KindTrack:
@@ -46,23 +54,17 @@ func resolveRef(client Client, ref *Ref) ([]model.Track, error) {
 		}
 		return tracks, nil
 	case KindLegacyPlaylist:
-		playlist, err := client.UsersPlaylist(ref.PlaylistID, ref.Username)
-		if err != nil {
-			return nil, err
-		}
-		return playlist.TracksList(), nil
+		return resolvePlaylist(func() (*model.Playlist, error) {
+			return client.UsersPlaylist(ref.PlaylistID, ref.Username)
+		})
 	case KindPlaylistUUID:
-		playlist, err := client.PlaylistByUUID(ref.PlaylistUUID)
-		if err != nil {
-			return nil, err
-		}
-		return playlist.TracksList(), nil
+		return resolvePlaylist(func() (*model.Playlist, error) {
+			return client.PlaylistByUUID(ref.PlaylistUUID)
+		})
 	case KindChart:
-		playlist, err := client.Chart(ref.Region)
-		if err != nil {
-			return nil, err
-		}
-		return playlist.TracksList(), nil
+		return resolvePlaylist(func() (*model.Playlist, error) {
+			return client.Chart(ref.Region)
+		})
 	default:
 		return nil, fmt.Errorf("unsupported URL type")
 	}

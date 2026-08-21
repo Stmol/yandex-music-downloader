@@ -107,6 +107,28 @@ func TestResolveChartExtractsTracks(t *testing.T) {
 	assert.Equal(t, "30", tracks[0].ID.String())
 }
 
+func TestResolvePlaylistLoadsTracks(t *testing.T) {
+	tracks, err := resolvePlaylist(func() (*model.Playlist, error) {
+		return &model.Playlist{
+			Tracks: []model.TrackShort{
+				{Track: model.Track{ID: model.FlexibleID("40"), Title: "Loaded"}},
+			},
+		}, nil
+	})
+	require.NoError(t, err)
+	require.Len(t, tracks, 1)
+	assert.Equal(t, "40", tracks[0].ID.String())
+}
+
+func TestResolvePlaylistPropagatesLoadError(t *testing.T) {
+	wantErr := errors.New("load failed")
+	tracks, err := resolvePlaylist(func() (*model.Playlist, error) {
+		return nil, wantErr
+	})
+	assert.Nil(t, tracks)
+	assert.ErrorIs(t, err, wantErr)
+}
+
 func TestResolveRejectsInvalidURL(t *testing.T) {
 	_, err := Resolve(fakeSourceClient{}, "not-a-url")
 	require.Error(t, err)

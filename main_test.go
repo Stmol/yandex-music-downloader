@@ -2,35 +2,12 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"strings"
 	"testing"
 	"ya-music/batch"
 	"ya-music/ya"
 	"ya-music/ya/model"
 )
-
-func TestInterruptBatchOnlyCancelsBatchContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	clientCancelled := false
-	wrappedCancel := func() {
-		cancel()
-		clientCancelled = true
-	}
-
-	interruptBatch(cancel)
-
-	if ctx.Err() == nil {
-		t.Fatal("expected batch context to be cancelled")
-	}
-	if clientCancelled {
-		t.Fatal("interruptBatch must not invoke client cancel")
-	}
-
-	_ = wrappedCancel
-}
 
 func TestConsumeDownloadEventsEmitHelperKeepsOrder(t *testing.T) {
 	tracks := []model.Track{
@@ -44,7 +21,7 @@ func TestConsumeDownloadEventsEmitHelperKeepsOrder(t *testing.T) {
 	close(events)
 
 	var stdout bytes.Buffer
-	summary, interrupted := consumeDownloadEvents(&stdout, events, nil, nil)
+	summary, interrupted := consumeDownloadEvents(&stdout, events, nil, nil, nil, nil)
 
 	if interrupted {
 		t.Fatal("expected interrupted = false")
@@ -80,6 +57,32 @@ func TestParseTUIOptionsAcceptsTimeoutAndSkipCover(t *testing.T) {
 	}
 	if parsed.options.timeoutSeconds != 30 || !parsed.options.skipCover {
 		t.Fatalf("unexpected options: %#v", parsed.options)
+	}
+}
+
+func TestParseTUIOptionsRejectsNegativeTimeout(t *testing.T) {
+	var stderr bytes.Buffer
+	parsed := parseTUIOptions([]string{"--timeout", "-1"}, &stderr)
+	if parsed.proceed || parsed.exitCode != 2 {
+		t.Fatalf("proceed = %v, exit code = %d, stderr: %s", parsed.proceed, parsed.exitCode, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "timeout must be >= 0 seconds") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestParseDownloadOptionsRejectsNegativeTimeout(t *testing.T) {
+	var stderr bytes.Buffer
+	parsed := parseDownloadOptions([]string{
+		"--token", "abc123",
+		"--link", "https://music.yandex.ru/album/123",
+		"--timeout", "-1",
+	}, &stderr)
+	if parsed.proceed || parsed.exitCode != 2 {
+		t.Fatalf("proceed = %v, exit code = %d, stderr: %s", parsed.proceed, parsed.exitCode, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "timeout must be >= 0 seconds") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
@@ -201,7 +204,7 @@ func TestConsumeDownloadEventsWritesEventsAsTheyArrive(t *testing.T) {
 	close(events)
 
 	var stdout bytes.Buffer
-	summary, interrupted := consumeDownloadEvents(&stdout, events, nil, nil)
+	summary, interrupted := consumeDownloadEvents(&stdout, events, nil, nil, nil, nil)
 
 	if interrupted {
 		t.Fatal("expected interrupted = false")
@@ -249,9 +252,9 @@ func TestConsumeDownloadEventsDrainsAllEventsWithoutInterrupt(t *testing.T) {
 
 	var stdout bytes.Buffer
 	cancelCalled := false
-	summary, interrupted := consumeDownloadEvents(&stdout, events, make(chan struct{}), func() {
+	summary, interrupted := consumeDownloadEvents(&stdout, events, make(chan struct{}), nil, func() {
 		cancelCalled = true
-	})
+	}, nil)
 
 	if interrupted {
 		t.Fatal("expected interrupted = false")
@@ -284,9 +287,9 @@ func TestConsumeDownloadEventsCallsCancelAndDrainsOnInterrupt(t *testing.T) {
 
 	var stdout bytes.Buffer
 	cancelCalled := false
-	summary, interrupted := consumeDownloadEvents(&stdout, events, interrupt, func() {
+	summary, interrupted := consumeDownloadEvents(&stdout, events, interrupt, nil, func() {
 		cancelCalled = true
-	})
+	}, nil)
 
 	if !interrupted {
 		t.Fatal("expected interrupted = true")

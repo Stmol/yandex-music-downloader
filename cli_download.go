@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 	"ya-music/batch"
 	"ya-music/source"
@@ -42,24 +40,24 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 	defer downloadLogger.Close()
 	client.SetToken(options.token)
 
-	account, err := client.AccountStatus()
-	if err != nil || account.Uid == 0 {
-		if err == nil {
-			err = errors.New("account has no user ID")
-		}
-		fmt.Fprintf(stderr, "failed to validate token: %v\n", err)
-		return 1
-	}
+	interrupts := newInterruptSignals()
+	defer interrupts.stop()
 
-	tracks, err := source.Resolve(client, options.link)
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to resolve source: %v\n", err)
+	preflight, interrupted := awaitDownloadPreflight(
+		stdout,
+		startDownloadPreflight(client, options.link),
+		interrupts.first,
+		client.Cancel,
+	)
+	if interrupted {
+		return 130
+	}
+	if preflight.err != nil {
+		fmt.Fprintln(stderr, preflight.err)
 		return 1
 	}
-	if len(tracks) == 0 {
-		fmt.Fprintln(stderr, "failed to resolve source: no tracks found")
-		return 1
-	}
+	tracks := preflight.tracks
+
 	if err := utils.CreateDirIfNotExists(options.output); err != nil {
 		fmt.Fprintf(stderr, "failed to create output directory: %v\n", err)
 		return 1
@@ -81,25 +79,10 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 		"output", options.output,
 	)
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
-
-	signalStop := make(chan struct{})
-	defer close(signalStop)
-
-	interrupt := make(chan struct{})
-	go func() {
-		select {
-		case <-sigCh:
-			close(interrupt)
-		case <-signalStop:
-		}
-	}()
 	batchContext, cancelBatch := context.WithCancel(context.Background())
 	defer cancelBatch()
 
-	summary, interrupted := consumeDownloadEvents(
+	summary, interrupted := consumeDownloadEventsWithFlush(
 		stdout,
 		batch.Run(batch.Config{
 			Client:    client,
@@ -111,8 +94,11 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 				AudioFormat: options.format,
 			},
 		}),
-		interrupt,
-		func() { interruptBatch(cancelBatch) },
+		interrupts.first,
+		interrupts.force,
+		cancelBatch,
+		client.Cancel,
+		interrupts.flush,
 	)
 
 	fmt.Fprintf(stdout, "\nFinished: %d downloaded, %d skipped, %d failed\nOutput: %s\n",
@@ -150,52 +136,166 @@ func (s *batchSummary) add(event batch.Event) {
 	}
 }
 
-func interruptBatch(cancelBatch context.CancelFunc) {
-	cancelBatch()
+type downloadPreflightClient interface {
+	source.Client
+	AccountStatus() (*model.Account, error)
+}
+
+type downloadPreflightResult struct {
+	tracks []model.Track
+	err    error
+}
+
+func startDownloadPreflight(client downloadPreflightClient, link string) <-chan downloadPreflightResult {
+	results := make(chan downloadPreflightResult, 1)
+	go func() {
+		defer close(results)
+		results <- runDownloadPreflight(client, link)
+	}()
+	return results
+}
+
+func runDownloadPreflight(client downloadPreflightClient, link string) downloadPreflightResult {
+	account, err := client.AccountStatus()
+	if err != nil || account == nil || account.Uid == 0 {
+		if err == nil {
+			err = errors.New("account has no user ID")
+		}
+		return downloadPreflightResult{err: fmt.Errorf("failed to validate token: %w", err)}
+	}
+
+	tracks, err := source.Resolve(client, link)
+	if err != nil {
+		return downloadPreflightResult{err: fmt.Errorf("failed to resolve source: %w", err)}
+	}
+	if len(tracks) == 0 {
+		return downloadPreflightResult{err: errors.New("failed to resolve source: no tracks found")}
+	}
+	return downloadPreflightResult{tracks: tracks}
+}
+
+func awaitDownloadPreflight(
+	stdout io.Writer,
+	results <-chan downloadPreflightResult,
+	firstInterrupt <-chan struct{},
+	cancelInFlight func(),
+) (downloadPreflightResult, bool) {
+	cancelAndWait := func() (downloadPreflightResult, bool) {
+		if cancelInFlight != nil {
+			cancelInFlight()
+		}
+		result := <-results
+		fmt.Fprintln(stdout, "Interrupted: preflight cancelled")
+		return result, true
+	}
+
+	select {
+	case <-firstInterrupt:
+		return cancelAndWait()
+	default:
+	}
+
+	select {
+	case <-firstInterrupt:
+		return cancelAndWait()
+	case result := <-results:
+		select {
+		case <-firstInterrupt:
+			if cancelInFlight != nil {
+				cancelInFlight()
+			}
+			fmt.Fprintln(stdout, "Interrupted: preflight cancelled")
+			return result, true
+		default:
+			return result, false
+		}
+	}
 }
 
 func consumeDownloadEvents(
 	stdout io.Writer,
 	events <-chan batch.Event,
-	interrupt <-chan struct{},
-	cancel func(),
+	firstInterrupt <-chan struct{},
+	forceInterrupt <-chan struct{},
+	stopScheduling func(),
+	cancelInFlight func(),
+) (batchSummary, bool) {
+	return consumeDownloadEventsWithFlush(
+		stdout,
+		events,
+		firstInterrupt,
+		forceInterrupt,
+		stopScheduling,
+		cancelInFlight,
+		nil,
+	)
+}
+
+func consumeDownloadEventsWithFlush(
+	stdout io.Writer,
+	events <-chan batch.Event,
+	firstInterrupt <-chan struct{},
+	forceInterrupt <-chan struct{},
+	stopScheduling func(),
+	cancelInFlight func(),
+	flushInterrupts func(),
 ) (summary batchSummary, interrupted bool) {
+	activeForceInterrupt := (<-chan struct{})(nil)
+	if firstInterrupt == nil {
+		activeForceInterrupt = forceInterrupt
+	}
+
 	emit := func(event batch.Event) {
 		fmt.Fprintln(stdout, formatBatchEvent(event))
 		summary.add(event)
 	}
+	handleFirstInterrupt := func() {
+		interrupted = true
+		firstInterrupt = nil
+		activeForceInterrupt = forceInterrupt
+		if stopScheduling != nil {
+			stopScheduling()
+		}
+	}
+	handleForceInterrupt := func() {
+		interrupted = true
+		forceInterrupt = nil
+		activeForceInterrupt = nil
+		if cancelInFlight != nil {
+			cancelInFlight()
+		}
+	}
 
 	for events != nil {
-		if interrupt == nil {
-			event, ok := <-events
-			if !ok {
-				break
-			}
-			emit(event)
-			continue
-		}
-
 		select {
-		case <-interrupt:
-			interrupted = true
-			interrupt = nil
-			if cancel != nil {
-				cancel()
-			}
+		case <-firstInterrupt:
+			handleFirstInterrupt()
+		case <-activeForceInterrupt:
+			handleForceInterrupt()
 		case event, ok := <-events:
 			if !ok {
-				select {
-				case <-interrupt:
-					interrupted = true
-					if cancel != nil {
-						cancel()
-					}
-				default:
-				}
 				events = nil
 				continue
 			}
 			emit(event)
+		}
+	}
+	if flushInterrupts != nil {
+		flushInterrupts()
+	}
+
+	if firstInterrupt != nil {
+		select {
+		case <-firstInterrupt:
+			handleFirstInterrupt()
+		default:
+		}
+	}
+	if activeForceInterrupt != nil {
+		select {
+		case <-activeForceInterrupt:
+			handleForceInterrupt()
+		default:
 		}
 	}
 
@@ -213,8 +313,4 @@ func formatBatchEvent(event batch.Event) string {
 		}
 	}
 	return fmt.Sprintf("[%s] %s", status, event.Track.DisplayLabel())
-}
-
-func formatTrackLabel(track model.Track) string {
-	return track.DisplayLabel()
 }

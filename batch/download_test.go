@@ -70,6 +70,84 @@ func TestRunSkipsUnavailableDuplicatesAndExistingFiles(t *testing.T) {
 	assert.Equal(t, string(SkipAlreadyExists), findEvent(t, events, 1, StatusSkipped).Reason)
 }
 
+type recordedDownload struct {
+	id      string
+	options ya.DownloadOptions
+}
+
+type recordingClient struct {
+	mu        sync.Mutex
+	downloads []recordedDownload
+}
+
+func (c *recordingClient) DownloadTrackWithOptions(track model.Track, _ string, options ya.DownloadOptions) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.downloads = append(c.downloads, recordedDownload{id: track.ID.String(), options: options})
+	return track.ID.String() + ".mp3", nil
+}
+
+func (c *recordingClient) downloadsByID() map[string]recordedDownload {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	result := make(map[string]recordedDownload, len(c.downloads))
+	for _, download := range c.downloads {
+		result[download.id] = download
+	}
+	return result
+}
+
+func (c *recordingClient) allDownloads() []recordedDownload {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]recordedDownload(nil), c.downloads...)
+}
+
+func (c *recordingClient) downloadCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.downloads)
+}
+
+func TestRunDeduplicatesOnlyIDsAndSuffixesFilenameCollisions(t *testing.T) {
+	client := &recordingClient{}
+	events := collect(Run(Config{
+		Client: client,
+		Tracks: []model.Track{
+			{ID: "1", Title: "Same/Title", Artists: []model.Artist{{Name: "Artist"}}, Available: true},
+			{ID: "2", Title: "Same:Title", Artists: []model.Artist{{Name: "Artist"}}, Available: true},
+			{ID: "1", Title: "Same/Title", Artists: []model.Artist{{Name: "Artist"}}, Available: true},
+			{ID: "3", Available: true},
+			{ID: "4", Available: true},
+			{Title: "Missing ID One", Available: true},
+			{Title: "Missing ID Two", Available: true},
+		},
+		Concurrency: 1,
+	}))
+
+	downloads := client.downloadsByID()
+	allDownloads := client.allDownloads()
+	require.Len(t, events, 13)
+	assert.Equal(t, 6, client.downloadCount())
+	require.Len(t, downloads, 5)
+	assert.Equal(t, "[1]", downloads["1"].options.FilenameSuffix)
+	assert.Equal(t, "[2]", downloads["2"].options.FilenameSuffix)
+	assert.Empty(t, downloads["3"].options.FilenameSuffix)
+	assert.Empty(t, downloads["4"].options.FilenameSuffix)
+
+	var emptyIDDownloads []recordedDownload
+	for _, download := range allDownloads {
+		if download.id == "" {
+			emptyIDDownloads = append(emptyIDDownloads, download)
+		}
+	}
+	require.Len(t, emptyIDDownloads, 2)
+	assert.Empty(t, emptyIDDownloads[0].options.FilenameSuffix)
+	assert.Empty(t, emptyIDDownloads[1].options.FilenameSuffix)
+	assert.Equal(t, SkipDuplicate, findEvent(t, events, 3, StatusSkipped).Reason)
+}
+
 type blockingClient struct {
 	started chan string
 	release chan struct{}

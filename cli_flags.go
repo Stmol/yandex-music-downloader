@@ -34,6 +34,13 @@ type downloadOptions struct {
 	sharedFlags
 }
 
+func validateSharedFlags(options sharedFlags) error {
+	if options.timeoutSeconds < 0 {
+		return errors.New("timeout must be >= 0 seconds")
+	}
+	return nil
+}
+
 func registerSharedFlags(fs *flag.FlagSet, dest *sharedFlags) {
 	fs.IntVar(&dest.timeoutSeconds, "timeout", 0, "download timeout in seconds (0 disables timeout)")
 	fs.BoolVar(&dest.skipCover, "skip-cover", false, "skip downloading and embedding track cover images")
@@ -54,8 +61,8 @@ func parseTUIOptions(args []string, stderr io.Writer) parseOutcome[tuiOptions] {
 		fmt.Fprintln(stderr, "unexpected command; use 'yamdl download --help' for batch downloads")
 		return parseOutcome[tuiOptions]{exitCode: 2}
 	}
-	if options.timeoutSeconds < 0 {
-		fmt.Fprintln(stderr, "timeout must be >= 0 seconds")
+	if err := validateSharedFlags(options.sharedFlags); err != nil {
+		fmt.Fprintln(stderr, err)
 		return parseOutcome[tuiOptions]{exitCode: 2}
 	}
 	return parseOutcome[tuiOptions]{options: options, proceed: true}
@@ -93,8 +100,8 @@ func parseDownloadOptions(args []string, stderr io.Writer) parseOutcome[download
 		fmt.Fprintln(stderr, "--link is required")
 		return parseOutcome[downloadOptions]{exitCode: 2}
 	}
-	if options.timeoutSeconds < 0 {
-		fmt.Fprintln(stderr, "timeout must be >= 0 seconds")
+	if err := validateSharedFlags(options.sharedFlags); err != nil {
+		fmt.Fprintln(stderr, err)
 		return parseOutcome[downloadOptions]{exitCode: 2}
 	}
 	options.format = ya.AudioFormat(strings.ToLower(strings.TrimSpace(format)))

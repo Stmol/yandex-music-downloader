@@ -32,10 +32,6 @@ func (t Track) ArtistsString() string {
 	return strings.Join(artists, ", ")
 }
 
-func (t Track) DuplicateKey() string {
-	return t.FullTitle() + " - " + t.ArtistsString()
-}
-
 func (t Track) DisplayLabel() string {
 	title := strings.TrimSpace(t.FullTitle())
 	artists := strings.TrimSpace(t.ArtistsString())

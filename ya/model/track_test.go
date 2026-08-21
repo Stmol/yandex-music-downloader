@@ -37,11 +37,3 @@ func TestTrackDisplayLabel(t *testing.T) {
 		})
 	}
 }
-
-func TestTrackDuplicateKey(t *testing.T) {
-	track := Track{Title: "Song", Version: "Live", Artists: []Artist{{Name: "A"}, {Name: "B"}}}
-	want := "Song Live - A, B"
-	if got := track.DuplicateKey(); got != want {
-		t.Fatalf("DuplicateKey() = %q, want %q", got, want)
-	}
-}
