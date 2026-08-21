@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.13.2 - 2026-08-21
+- make batch interruption two-stage: the first Ctrl+C or SIGTERM stops scheduling new tracks and lets active downloads finish, while the second signal force-cancels active HTTP requests
+- keep distinct tracks with colliding sanitized names by adding deterministic `[track-id]` filename suffixes instead of skipping them as duplicates
+- move the CLI entry point to `cmd/yamdl` and share flag parsing, client setup, and source URL resolution between the TUI and `yamdl download`
+- improve batch event typing, display labels, validation, and regression coverage, and build all release archives from the new command package
+
 ## v1.13.1 - 2026-08-20
 - append each batch-download status as an immutable `[status] Artist — Track` line so previous events stay visible and are never overwritten
 - stop scheduling remaining batch tracks on Ctrl+C or SIGTERM so cancelled tracks stay queued, print `Interrupted: remaining tracks stayed queued`, then still emit the partial summary and exit 130
