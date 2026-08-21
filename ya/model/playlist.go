@@ -28,3 +28,14 @@ type Playlist struct {
 	UID                int           `json:"uid"`
 	Visibility         string        `json:"visibility"`
 }
+
+func (p Playlist) TracksList() []Track {
+	if p.Tracks == nil {
+		return nil
+	}
+	tracks := make([]Track, 0, len(p.Tracks))
+	for _, short := range p.Tracks {
+		tracks = append(tracks, short.Track)
+	}
+	return tracks
+}

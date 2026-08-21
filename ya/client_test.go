@@ -60,7 +60,7 @@ func TestDownloadTrackReturnsAlreadyExistsSentinel(t *testing.T) {
 		Title:     "Existing",
 		Available: true,
 	}
-	filename := buildTrackFilename(track, outputDir)
+	filename := buildTrackFilename(track, outputDir, "")
 	require.NoError(t, os.WriteFile(filename, []byte("existing"), 0644))
 
 	var httpCalls int
@@ -87,7 +87,7 @@ func TestDownloadTrackReturnsAlreadyExistsSentinelForFLACFormat(t *testing.T) {
 		Title:     "Existing",
 		Available: true,
 	}
-	filename := buildTrackFilenameWithExtension(track, outputDir, ".flac")
+	filename := buildTrackFilenameWithExtension(track, outputDir, ".flac", "")
 	require.NoError(t, os.WriteFile(filename, []byte("existing"), 0644))
 
 	client := NewClient(nil)
@@ -163,10 +163,13 @@ func TestDownloadTrackWithOptionsWritesFLACWhenLosslessSucceeds(t *testing.T) {
 		return "", nil
 	}
 
-	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
+	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{
+		AudioFormat:    AudioFormatFLAC,
+		FilenameSuffix: "[10]",
+	})
 
 	require.NoError(t, err)
-	assert.Equal(t, buildTrackFilenameWithExtension(track, outputDir, ".flac"), filename)
+	assert.Equal(t, filepath.Join(outputDir, "Artist - Song [10].flac"), filename)
 	data, err := os.ReadFile(filename)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "TITLE=Song")
@@ -202,7 +205,7 @@ func TestDownloadTrackWithOptionsWritesFLACMP4AsM4A(t *testing.T) {
 	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
 
 	require.NoError(t, err)
-	assert.Equal(t, buildTrackFilenameWithExtension(track, outputDir, ".m4a"), filename)
+	assert.Equal(t, buildTrackFilenameWithExtension(track, outputDir, ".m4a", ""), filename)
 	data, err := os.ReadFile(filename)
 	require.NoError(t, err)
 	assert.Equal(t, fixtureFTYP, readMP4FileTypeBox(t, filename))
@@ -298,7 +301,7 @@ func TestDownloadTrackWithOptionsKeepsM4AWhenTaggingFails(t *testing.T) {
 	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
 
 	require.NoError(t, err)
-	assert.Equal(t, buildTrackFilenameWithExtension(track, outputDir, ".m4a"), filename)
+	assert.Equal(t, buildTrackFilenameWithExtension(track, outputDir, ".m4a", ""), filename)
 	data, err := os.ReadFile(filename)
 	require.NoError(t, err)
 	assert.Equal(t, fixtureData, data)
@@ -419,7 +422,7 @@ func TestDownloadTrackWithOptionsRejectsInvalidFLACMagic(t *testing.T) {
 		data: []byte("not-flac-data"),
 	}
 
-	destination := buildTrackFilenameWithExtension(track, outputDir, ".flac")
+	destination := buildTrackFilenameWithExtension(track, outputDir, ".flac", "")
 	filename, err := client.downloadTrackLossless(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
 
 	assert.Error(t, err)
@@ -445,7 +448,7 @@ func TestDownloadTrackWithOptionsRejectsUnknownLosslessCodec(t *testing.T) {
 		data: []byte("audio"),
 	}
 
-	destination := buildTrackFilenameWithExtension(track, outputDir, ".flac")
+	destination := buildTrackFilenameWithExtension(track, outputDir, ".flac", "")
 	filename, err := client.downloadTrackLossless(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
 
 	assert.Error(t, err)
@@ -472,7 +475,7 @@ func TestDownloadTrackWithOptionsReturnsFLACTagErrorWithoutDestination(t *testin
 		data: []byte("fLaCinvalid"),
 	}
 
-	destination := buildTrackFilenameWithExtension(track, outputDir, ".flac")
+	destination := buildTrackFilenameWithExtension(track, outputDir, ".flac", "")
 	filename, err := client.downloadTrackLossless(track, outputDir, DownloadOptions{AudioFormat: AudioFormatFLAC})
 
 	assert.Error(t, err)
@@ -515,7 +518,7 @@ func TestDownloadTrackWithOptionsDoesNotDownloadLosslessWhenTargetExists(t *test
 		Title:     "Existing M4A",
 		Available: true,
 	}
-	filename := buildTrackFilenameWithExtension(track, outputDir, ".m4a")
+	filename := buildTrackFilenameWithExtension(track, outputDir, ".m4a", "")
 	require.NoError(t, os.WriteFile(filename, []byte("existing"), 0644))
 
 	client := NewClient(nil)
@@ -634,10 +637,11 @@ func TestDownloadTrackMP3PublishesThroughArtifactPipeline(t *testing.T) {
 	ts := newMP3TestServer(t, mp3TestServerConfig{trackID: "42"})
 	client := newMP3TestClient(t, ts)
 
-	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{})
+	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{FilenameSuffix: "[42]"})
 
 	require.NoError(t, err)
-	assert.Equal(t, buildTrackFilename(track, outputDir), filename)
+	assert.Equal(t, filepath.Join(outputDir, "Artist - Song [42].mp3"), filename)
+	assert.Equal(t, filename+".cover", buildCoverFilename(filename))
 
 	tag, err := id3v2.Open(filename, id3v2.Options{Parse: true})
 	require.NoError(t, err)
@@ -664,7 +668,7 @@ func TestDownloadTrackMP3ReturnsDownloadErrorWithoutPartialDestination(t *testin
 		downloadStatus: http.StatusServiceUnavailable,
 	})
 	client := newMP3TestClient(t, ts)
-	destination := buildTrackFilename(track, outputDir)
+	destination := buildTrackFilename(track, outputDir, "")
 
 	filename, err := client.DownloadTrackWithOptions(track, outputDir, DownloadOptions{})
 
@@ -687,7 +691,7 @@ func TestDownloadTrackMP3ReturnsTaggerErrorWithoutPartialDestination(t *testing.
 
 	ts := newMP3TestServer(t, mp3TestServerConfig{trackID: "42"})
 	client := newMP3TestClient(t, ts)
-	destination := buildTrackFilename(track, outputDir)
+	destination := buildTrackFilename(track, outputDir, "")
 
 	tagger := &recordingArtifactTagger{err: errors.New("tag failure")}
 	client.mp3Tagger = tagger
@@ -715,9 +719,25 @@ func TestBuildTrackFilenameUsesCanonicalArtistTrackPattern(t *testing.T) {
 		},
 	}
 
-	filename := buildTrackFilename(track, outputDir)
+	filename := buildTrackFilename(track, outputDir, "")
 
 	assert.Equal(t, filepath.Join(outputDir, "Artist_ One, Artist Two - Track_Name Live.mp3"), filename)
+}
+
+func TestTrackFilenameKeyAndSuffixUseSanitizedBase(t *testing.T) {
+	outputDir := t.TempDir()
+	track := model.Track{
+		ID:      model.FlexibleID("123"),
+		Title:   "Track/Name",
+		Version: "Live",
+		Artists: []model.Artist{{Name: "Artist: One"}},
+	}
+
+	assert.Equal(t, "Artist_ One - Track_Name Live", TrackFilenameKey(track))
+	assert.Equal(t, "456", TrackFilenameKey(model.Track{ID: model.FlexibleID("456")}))
+	filename := buildTrackFilename(track, outputDir, "[123]")
+	assert.Equal(t, filepath.Join(outputDir, "Artist_ One - Track_Name Live [123].mp3"), filename)
+	assert.Equal(t, filepath.Join(outputDir, "Artist_ One - Track_Name Live [123].mp3.cover"), buildCoverFilename(filename))
 }
 
 func TestTrackFilenameBaseFallsBackWhenArtistIsMissing(t *testing.T) {

@@ -23,11 +23,25 @@ const (
 	StatusError       Status = "error"
 )
 
+type Container string
+
+const (
+	ContainerMP3  Container = "mp3"
+	ContainerFLAC Container = "flac"
+	ContainerM4A  Container = "m4a"
+)
+
+const (
+	SkipUnavailable   = "unavailable"
+	SkipDuplicate     = "duplicate"
+	SkipAlreadyExists = "already exists"
+)
+
 type Event struct {
 	Index  int
 	Track  model.Track
 	Status Status
-	Format string
+	Format Container
 	Reason string
 }
 
@@ -60,7 +74,7 @@ func Run(config Config) <-chan Event {
 		defer close(events)
 
 		seenIDs := make(map[string]struct{}, len(config.Tracks))
-		seenNames := make(map[string]struct{}, len(config.Tracks))
+		suffixes := filenameSuffixes(config.Tracks)
 		sem := make(chan struct{}, concurrency)
 		var workers sync.WaitGroup
 
@@ -72,27 +86,21 @@ func Run(config Config) <-chan Event {
 			event := Event{Index: position + 1, Track: track}
 			if !track.Available {
 				event.Status = StatusSkipped
-				event.Reason = "unavailable"
+				event.Reason = SkipUnavailable
 				events <- event
 				continue
 			}
 
 			id := track.ID.String()
-			name := track.FullTitle() + " - " + track.ArtistsString()
-			if _, exists := seenIDs[id]; exists {
-				event.Status = StatusSkipped
-				event.Reason = "duplicate"
-				events <- event
-				continue
+			if id != "" {
+				if _, exists := seenIDs[id]; exists {
+					event.Status = StatusSkipped
+					event.Reason = SkipDuplicate
+					events <- event
+					continue
+				}
+				seenIDs[id] = struct{}{}
 			}
-			if _, exists := seenNames[name]; exists {
-				event.Status = StatusSkipped
-				event.Reason = "duplicate"
-				events <- event
-				continue
-			}
-			seenIDs[id] = struct{}{}
-			seenNames[name] = struct{}{}
 
 			acquired := false
 			select {
@@ -104,8 +112,11 @@ func Run(config Config) <-chan Event {
 				break
 			}
 
+			options := config.Options
+			options.FilenameSuffix = suffixes[position]
+
 			workers.Add(1)
-			go func(event Event) {
+			go func(event Event, options ya.DownloadOptions) {
 				defer workers.Done()
 				defer func() { <-sem }()
 				defer func() {
@@ -123,10 +134,10 @@ func Run(config Config) <-chan Event {
 				event.Status = StatusDownloading
 				events <- event
 
-				filename, err := config.Client.DownloadTrackWithOptions(event.Track, config.OutputDir, config.Options)
+				filename, err := config.Client.DownloadTrackWithOptions(event.Track, config.OutputDir, options)
 				if errors.Is(err, ya.ErrTrackAlreadyExists) {
 					event.Status = StatusSkipped
-					event.Reason = "already exists"
+					event.Reason = SkipAlreadyExists
 					event.Format = formatFromFilename(filename)
 				} else if err != nil {
 					event.Status = StatusError
@@ -136,7 +147,7 @@ func Run(config Config) <-chan Event {
 					event.Format = formatFromFilename(filename)
 				}
 				events <- event
-			}(event)
+			}(event, options)
 		}
 
 		workers.Wait()
@@ -145,13 +156,33 @@ func Run(config Config) <-chan Event {
 	return events
 }
 
-func formatFromFilename(filename string) string {
+func filenameSuffixes(tracks []model.Track) []string {
+	idsByFilenameKey := make(map[string]map[string]struct{}, len(tracks))
+	for _, track := range tracks {
+		key := ya.TrackFilenameKey(track)
+		if idsByFilenameKey[key] == nil {
+			idsByFilenameKey[key] = make(map[string]struct{})
+		}
+		idsByFilenameKey[key][track.ID.String()] = struct{}{}
+	}
+
+	suffixes := make([]string, len(tracks))
+	for position, track := range tracks {
+		if len(idsByFilenameKey[ya.TrackFilenameKey(track)]) > 1 {
+			suffixes[position] = fmt.Sprintf("[%s]", track.ID.String())
+		}
+	}
+
+	return suffixes
+}
+
+func formatFromFilename(filename string) Container {
 	switch strings.ToLower(filepath.Ext(filename)) {
 	case ".flac":
-		return "flac"
+		return ContainerFLAC
 	case ".m4a", ".mp4":
-		return "m4a"
+		return ContainerM4A
 	default:
-		return "mp3"
+		return ContainerMP3
 	}
 }

@@ -8,8 +8,9 @@ const (
 )
 
 type DownloadOptions struct {
-	SkipCover   bool
-	AudioFormat AudioFormat
+	SkipCover      bool
+	AudioFormat    AudioFormat
+	FilenameSuffix string
 }
 
 func (o DownloadOptions) FormatOrDefault() AudioFormat {
