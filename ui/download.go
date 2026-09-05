@@ -163,6 +163,7 @@ type DownloadModel struct {
 	downloadOptions ya.DownloadOptions
 	layout          config.Layout
 	folderArtist    string
+	folderPlaylist  string
 
 	// Error message.
 	errorMsg string
@@ -276,6 +277,7 @@ func (m *DownloadModel) Reset() {
 	m.tracksProgress = nil
 	m.sessionEvents = nil
 	m.folderArtist = ""
+	m.folderPlaylist = ""
 	m.tracksTotalCount = 0
 	m.downloadedCount = 0
 	m.downloadableCount = 0
@@ -625,11 +627,13 @@ func (m DownloadModel) startDownloadSession() tea.Cmd {
 	targetDir := utils.ResolveOutputDir()
 	layoutCfg := m.layout
 	folderArtist := m.folderArtist
+	folderPlaylist := m.folderPlaylist
 
 	return func() tea.Msg {
 		session := NewDownloadSession(client, logger, options, targetDir, SessionConfig{
-			Layout:       layoutCfg,
-			FolderArtist: folderArtist,
+			Layout:         layoutCfg,
+			FolderArtist:   folderArtist,
+			FolderPlaylist: folderPlaylist,
 		})
 		return downloadSessionStartedMsg{events: session.Run(progress)}
 	}

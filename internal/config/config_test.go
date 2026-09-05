@@ -17,6 +17,7 @@ func TestLoadMissingDefaultFileReturnsDefaults(t *testing.T) {
 	assert.Equal(t, Default(), cfg)
 	assert.False(t, cfg.Layout.ByArtist)
 	assert.False(t, cfg.Layout.ByAlbum)
+	assert.False(t, cfg.Layout.ByPlaylist)
 	assert.Equal(t, DefaultAlbumMask, cfg.Layout.AlbumDirMask)
 	assert.Equal(t, DefaultTrackMask, cfg.Layout.TrackFileMask)
 }
@@ -35,6 +36,7 @@ func TestLoadParsesLayoutFlagsAndMask(t *testing.T) {
 layout:
   by_artist: true
   by_album: true
+  by_playlist: true
   album_dir_mask: "{year} — {title}"
   track_file_mask: "{nn} - {title}"
 `), 0644))
@@ -43,6 +45,7 @@ layout:
 	require.NoError(t, err)
 	assert.True(t, cfg.Layout.ByArtist)
 	assert.True(t, cfg.Layout.ByAlbum)
+	assert.True(t, cfg.Layout.ByPlaylist)
 	assert.Equal(t, "{year} — {title}", cfg.Layout.AlbumDirMask)
 	assert.Equal(t, "{nn} - {title}", cfg.Layout.TrackFileMask)
 }

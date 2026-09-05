@@ -28,5 +28,8 @@ func TestPlaylistTracksList(t *testing.T) {
 		if len(got) != 2 || got[0].ID.String() != "1" || got[1].ID.String() != "2" {
 			t.Fatalf("TracksList() = %#v", got)
 		}
+		if got[0].PlaylistIndex != 1 || got[1].PlaylistIndex != 2 {
+			t.Fatalf("PlaylistIndex = %d, %d, want 1, 2", got[0].PlaylistIndex, got[1].PlaylistIndex)
+		}
 	})
 }

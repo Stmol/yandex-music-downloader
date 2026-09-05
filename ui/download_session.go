@@ -33,18 +33,20 @@ type DownloadSessionEvent struct {
 }
 
 type DownloadSession struct {
-	client       downloadTrackClient
-	logger       *utils.DownloadLogger
-	options      ya.DownloadOptions
-	outputDir    string
-	concurrency  int
-	layout       config.Layout
-	folderArtist string
+	client         downloadTrackClient
+	logger         *utils.DownloadLogger
+	options        ya.DownloadOptions
+	outputDir      string
+	concurrency    int
+	layout         config.Layout
+	folderArtist   string
+	folderPlaylist string
 }
 
 type SessionConfig struct {
-	Layout       config.Layout
-	FolderArtist string
+	Layout         config.Layout
+	FolderArtist   string
+	FolderPlaylist string
 }
 
 func NewDownloadSession(
@@ -63,13 +65,14 @@ func NewDownloadSession(
 	}
 
 	return &DownloadSession{
-		client:       client,
-		logger:       logger,
-		options:      options,
-		outputDir:    outputDir,
-		concurrency:  maxConcurrentDownloads,
-		layout:       cfg.Layout,
-		folderArtist: cfg.FolderArtist,
+		client:         client,
+		logger:         logger,
+		options:        options,
+		outputDir:      outputDir,
+		concurrency:    maxConcurrentDownloads,
+		layout:         cfg.Layout,
+		folderArtist:   cfg.FolderArtist,
+		folderPlaylist: cfg.FolderPlaylist,
 	}
 }
 
@@ -140,8 +143,9 @@ func (s *DownloadSession) runTrack(
 	events <- DownloadSessionEvent{Progress: item}
 
 	dir := layout.TrackOutputDir(s.outputDir, *item.track, layout.Options{
-		Layout:       s.layout,
-		FolderArtist: s.folderArtist,
+		Layout:         s.layout,
+		FolderArtist:   s.folderArtist,
+		FolderPlaylist: s.folderPlaylist,
 	})
 	if err := utils.CreateDirIfNotExists(dir); err != nil {
 		item.status = TrackStatusError

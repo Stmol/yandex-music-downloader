@@ -53,14 +53,15 @@ type trackDownloader interface {
 }
 
 type Config struct {
-	Client       trackDownloader
-	Tracks       []model.Track
-	OutputDir    string
-	Options      ya.DownloadOptions
-	Concurrency  int
-	Context      context.Context
-	Layout       config.Layout
-	FolderArtist string
+	Client         trackDownloader
+	Tracks         []model.Track
+	OutputDir      string
+	Options        ya.DownloadOptions
+	Concurrency    int
+	Context        context.Context
+	Layout         config.Layout
+	FolderArtist   string
+	FolderPlaylist string
 }
 
 // Run downloads all eligible tracks and reports immutable lifecycle events.
@@ -173,7 +174,11 @@ func Run(config Config) <-chan Event {
 
 func trackOutputDirs(config Config) []string {
 	dirs := make([]string, len(config.Tracks))
-	opts := layout.Options{Layout: config.Layout, FolderArtist: config.FolderArtist}
+	opts := layout.Options{
+		Layout:         config.Layout,
+		FolderArtist:   config.FolderArtist,
+		FolderPlaylist: config.FolderPlaylist,
+	}
 	for i, track := range config.Tracks {
 		dirs[i] = layout.TrackOutputDir(config.OutputDir, track, opts)
 	}

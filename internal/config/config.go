@@ -41,6 +41,7 @@ type Config struct {
 type Layout struct {
 	ByArtist      bool   `yaml:"by_artist"`
 	ByAlbum       bool   `yaml:"by_album"`
+	ByPlaylist    bool   `yaml:"by_playlist"`
 	AlbumDirMask  string `yaml:"album_dir_mask"`
 	TrackFileMask string `yaml:"track_file_mask"`
 }

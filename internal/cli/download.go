@@ -94,12 +94,13 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 	summary, interrupted := consumeDownloadEventsWithFlush(
 		stdout,
 		batch.Run(batch.Config{
-			Client:       client,
-			Tracks:       tracks,
-			OutputDir:    options.output,
-			Context:      batchContext,
-			Layout:       cfg.Layout,
-			FolderArtist: preflight.folderArtist,
+			Client:         client,
+			Tracks:         tracks,
+			OutputDir:      options.output,
+			Context:        batchContext,
+			Layout:         cfg.Layout,
+			FolderArtist:   preflight.folderArtist,
+			FolderPlaylist: preflight.folderPlaylist,
 			Options: ya.DownloadOptions{
 				SkipCover:   options.skipCover,
 				AudioFormat: options.format,
@@ -157,10 +158,11 @@ type downloadPreflightClient interface {
 }
 
 type downloadPreflightResult struct {
-	tracks        []model.Track
-	folderArtist  string
-	skippedAlbums []source.SkippedAlbum
-	err           error
+	tracks         []model.Track
+	folderArtist   string
+	folderPlaylist string
+	skippedAlbums  []source.SkippedAlbum
+	err            error
 }
 
 func startDownloadPreflight(client downloadPreflightClient, link string) <-chan downloadPreflightResult {
@@ -189,9 +191,10 @@ func runDownloadPreflight(client downloadPreflightClient, link string) downloadP
 		return downloadPreflightResult{err: errors.New("failed to resolve source: no tracks found")}
 	}
 	return downloadPreflightResult{
-		tracks:        result.Tracks,
-		folderArtist:  result.FolderArtist,
-		skippedAlbums: result.SkippedAlbums,
+		tracks:         result.Tracks,
+		folderArtist:   result.FolderArtist,
+		folderPlaylist: result.FolderPlaylist,
+		skippedAlbums:  result.SkippedAlbums,
 	}
 }
 

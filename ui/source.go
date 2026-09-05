@@ -14,9 +14,10 @@ import (
 
 type (
 	SourceSubmitMsg struct {
-		Tracks        []model.Track
-		FolderArtist  string
-		SkippedAlbums []source.SkippedAlbum
+		Tracks         []model.Track
+		FolderArtist   string
+		FolderPlaylist string
+		SkippedAlbums  []source.SkippedAlbum
 	}
 
 	URLHandleErrorMsg string
@@ -122,9 +123,10 @@ func (m *SourceModel) handleURL(ref *source.Ref) tea.Cmd {
 			return URLHandleErrorMsg(err.Error())
 		}
 		return SourceSubmitMsg{
-			Tracks:        result.Tracks,
-			FolderArtist:  result.FolderArtist,
-			SkippedAlbums: result.SkippedAlbums,
+			Tracks:         result.Tracks,
+			FolderArtist:   result.FolderArtist,
+			FolderPlaylist: result.FolderPlaylist,
+			SkippedAlbums:  result.SkippedAlbums,
 		}
 	}
 }

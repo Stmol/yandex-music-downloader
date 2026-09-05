@@ -213,6 +213,20 @@ func TestSourceSubmitStoresFolderArtist(t *testing.T) {
 	assert.Equal(t, "ABBA", updated.downloadModel.folderArtist)
 }
 
+func TestSourceSubmitStoresFolderPlaylist(t *testing.T) {
+	m := StartUi(nil)
+
+	updatedModel, _ := m.Update(SourceSubmitMsg{
+		Tracks: []model.Track{
+			{ID: model.FlexibleID("1"), Title: "A", Available: true},
+		},
+		FolderPlaylist: "Favorites",
+	})
+	updated := updatedModel.(Model)
+
+	assert.Equal(t, "Favorites", updated.downloadModel.folderPlaylist)
+}
+
 func TestBackToURLClearsFolderArtist(t *testing.T) {
 	m := StartUi(nil)
 	m.initState = UiStateDownloading
@@ -222,4 +236,15 @@ func TestBackToURLClearsFolderArtist(t *testing.T) {
 	updated := updatedModel.(Model)
 
 	assert.Empty(t, updated.downloadModel.folderArtist)
+}
+
+func TestBackToURLClearsFolderPlaylist(t *testing.T) {
+	m := StartUi(nil)
+	m.initState = UiStateDownloading
+	m.downloadModel.folderPlaylist = "Favorites"
+
+	updatedModel, _ := m.Update(BackToURLMsg{})
+	updated := updatedModel.(Model)
+
+	assert.Empty(t, updated.downloadModel.folderPlaylist)
 }

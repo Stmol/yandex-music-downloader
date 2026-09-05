@@ -12,12 +12,19 @@ import (
 
 // Options defines how the destination directory is derived from a track.
 type Options struct {
-	Layout       config.Layout
-	FolderArtist string
+	Layout         config.Layout
+	FolderArtist   string
+	FolderPlaylist string
 }
 
 // TrackOutputDir builds the path under root according to the layout rules.
 func TrackOutputDir(root string, track model.Track, opts Options) string {
+	if opts.Layout.ByPlaylist {
+		if name := sanitizeSegment(strings.TrimSpace(opts.FolderPlaylist)); name != "" {
+			return filepath.Join(root, name)
+		}
+	}
+
 	parts := []string{root}
 	if opts.Layout.ByArtist {
 		if name := sanitizeSegment(artistFolderName(track, opts.FolderArtist)); name != "" {
@@ -98,16 +105,20 @@ func ApplyTrackFileMask(mask string, track model.Track) string {
 	nn := ""
 	year := ""
 	albumTitle := ""
+	index := track.PlaylistIndex
 	if len(track.Albums) > 0 {
 		album := track.Albums[0]
-		if album.TrackPosition.Index > 0 {
-			n = strconv.Itoa(album.TrackPosition.Index)
-			nn = fmtTrackNumber(album.TrackPosition.Index)
+		if index <= 0 {
+			index = album.TrackPosition.Index
 		}
 		if album.Year > 0 {
 			year = strconv.Itoa(album.Year)
 		}
 		albumTitle = strings.TrimSpace(album.Title)
+	}
+	if index > 0 {
+		n = strconv.Itoa(index)
+		nn = fmtTrackNumber(index)
 	}
 
 	// Replace {nn} before {n}, otherwise "{nn}" would become "{5n}".
