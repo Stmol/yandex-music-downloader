@@ -100,14 +100,59 @@ func TestApplyAlbumDirMaskDropsMissingYear(t *testing.T) {
 	assert.Equal(t, "Arrival", ApplyAlbumDirMask("{title}", 1975, "Arrival"))
 }
 
+func TestApplyTrackFileMaskSubstitutesAllPlaceholders(t *testing.T) {
+	track := sampleTrack()
+	assert.Equal(t, "01 - Mamma Mia", ApplyTrackFileMask("{nn} - {title}", track))
+	assert.Equal(t, "1 - Mamma Mia", ApplyTrackFileMask("{n} - {title}", track))
+	assert.Equal(t, "1975 - Arrival - Mamma Mia", ApplyTrackFileMask("{year} - {album} - {title}", track))
+	assert.Equal(t, "ABBA - Mamma Mia", ApplyTrackFileMask("{artist} - {title}", track))
+}
+
+func TestApplyTrackFileMaskPadsTrackNumbers(t *testing.T) {
+	track := sampleTrack()
+	track.Albums[0].TrackPosition.Index = 9
+	assert.Equal(t, "09 - Mamma Mia", ApplyTrackFileMask("{nn} - {title}", track))
+	track.Albums[0].TrackPosition.Index = 12
+	assert.Equal(t, "12 - Mamma Mia", ApplyTrackFileMask("{nn} - {title}", track))
+	track.Albums[0].TrackPosition.Index = 100
+	assert.Equal(t, "100 - Mamma Mia", ApplyTrackFileMask("{nn} - {title}", track))
+}
+
+func TestApplyTrackFileMaskReplacesNNBeforeN(t *testing.T) {
+	track := sampleTrack()
+	track.Albums[0].TrackPosition.Index = 5
+	assert.Equal(t, "05 / 5", ApplyTrackFileMask("{nn} / {n}", track))
+}
+
+func TestApplyTrackFileMaskDropsMissingValues(t *testing.T) {
+	track := model.Track{Title: "Mamma Mia"}
+	assert.Equal(t, "Mamma Mia", ApplyTrackFileMask("{nn} - {title}", track))
+	assert.Equal(t, "Mamma Mia", ApplyTrackFileMask("{n} - {year} - {album} - {title}", track))
+	assert.Equal(t, "Mamma Mia", ApplyTrackFileMask("{artist} - {title}", track))
+}
+
+func TestApplyTrackFileMaskUsesFullTitleAndDefaultMask(t *testing.T) {
+	track := sampleTrack()
+	track.Version = "Live"
+	assert.Equal(t, "ABBA - Mamma Mia Live", ApplyTrackFileMask("", track))
+}
+
+func TestTrackFilenameBaseSanitizesAndFallsBackToID(t *testing.T) {
+	track := sampleTrack()
+	track.Title = "Mamma/Mia"
+	assert.Equal(t, "01 - Mamma_Mia", TrackFilenameBase(track, "{nn} - {title}"))
+	assert.Equal(t, "456", TrackFilenameBase(model.Track{ID: "456"}, "{nn} - {title}"))
+}
+
 func sampleTrack() model.Track {
 	return model.Track{
 		Title:   "Mamma Mia",
 		Artists: []model.Artist{{Name: "ABBA"}},
 		Albums: []model.Album{{
-			Title:   "Arrival",
-			Year:    1975,
-			Artists: []model.Artist{{Name: "ABBA"}},
+			Title:         "Arrival",
+			Year:          1975,
+			Artists:       []model.Artist{{Name: "ABBA"}},
+			TrackPosition: model.TrackPosition{Index: 1},
 		}},
 	}
 }

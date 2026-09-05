@@ -13,13 +13,23 @@ import (
 const (
 	DefaultPath      = "yamdl.yaml"
 	DefaultAlbumMask = "{year} - {title}"
+	DefaultTrackMask = "{artist} - {title}"
 )
 
 var placeholderPattern = regexp.MustCompile(`\{[^{}]+\}`)
 
-var allowedPlaceholders = map[string]struct{}{
+var albumPlaceholders = map[string]struct{}{
 	"{year}":  {},
 	"{title}": {},
+}
+
+var trackPlaceholders = map[string]struct{}{
+	"{n}":      {},
+	"{nn}":     {},
+	"{year}":   {},
+	"{album}":  {},
+	"{title}":  {},
+	"{artist}": {},
 }
 
 // Config holds the application settings read from YAML.
@@ -29,15 +39,17 @@ type Config struct {
 
 // Layout defines how downloaded files are arranged by artist and release.
 type Layout struct {
-	ByArtist     bool   `yaml:"by_artist"`
-	ByAlbum      bool   `yaml:"by_album"`
-	AlbumDirMask string `yaml:"album_dir_mask"`
+	ByArtist      bool   `yaml:"by_artist"`
+	ByAlbum       bool   `yaml:"by_album"`
+	AlbumDirMask  string `yaml:"album_dir_mask"`
+	TrackFileMask string `yaml:"track_file_mask"`
 }
 
 func Default() Config {
 	return Config{
 		Layout: Layout{
-			AlbumDirMask: DefaultAlbumMask,
+			AlbumDirMask:  DefaultAlbumMask,
+			TrackFileMask: DefaultTrackMask,
 		},
 	}
 }
@@ -77,13 +89,20 @@ func (l *Layout) normalize() error {
 			l.AlbumDirMask = DefaultAlbumMask
 		}
 	}
-	return l.validateMask()
+	l.TrackFileMask = strings.TrimSpace(l.TrackFileMask)
+	if l.TrackFileMask == "" {
+		l.TrackFileMask = DefaultTrackMask
+	}
+	if err := validateMask("album_dir_mask", l.AlbumDirMask, albumPlaceholders); err != nil {
+		return err
+	}
+	return validateMask("track_file_mask", l.TrackFileMask, trackPlaceholders)
 }
 
-func (l Layout) validateMask() error {
-	for _, match := range placeholderPattern.FindAllString(l.AlbumDirMask, -1) {
-		if _, ok := allowedPlaceholders[match]; !ok {
-			return fmt.Errorf("unknown album_dir_mask placeholder %s", match)
+func validateMask(field, mask string, allowed map[string]struct{}) error {
+	for _, match := range placeholderPattern.FindAllString(mask, -1) {
+		if _, ok := allowed[match]; !ok {
+			return fmt.Errorf("unknown %s placeholder %s", field, match)
 		}
 	}
 	return nil

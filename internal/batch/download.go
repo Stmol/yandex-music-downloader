@@ -80,7 +80,7 @@ func Run(config Config) <-chan Event {
 
 		seenIDs := make(map[string]struct{}, len(config.Tracks))
 		dirs := trackOutputDirs(config)
-		suffixes := filenameSuffixes(config.Tracks, dirs)
+		suffixes := filenameSuffixes(config.Tracks, dirs, config.Layout.TrackFileMask)
 		sem := make(chan struct{}, concurrency)
 		var workers sync.WaitGroup
 
@@ -120,6 +120,7 @@ func Run(config Config) <-chan Event {
 
 			options := config.Options
 			options.FilenameSuffix = suffixes[position]
+			options.FilenameBase = layout.TrackFilenameBase(track, config.Layout.TrackFileMask)
 			dir := dirs[position]
 
 			workers.Add(1)
@@ -179,10 +180,10 @@ func trackOutputDirs(config Config) []string {
 	return dirs
 }
 
-func filenameSuffixes(tracks []model.Track, dirs []string) []string {
+func filenameSuffixes(tracks []model.Track, dirs []string, mask string) []string {
 	idsByFilenameKey := make(map[string]map[string]struct{}, len(tracks))
 	for i, track := range tracks {
-		key := collisionKey(dirs[i], track)
+		key := collisionKey(dirs[i], track, mask)
 		if idsByFilenameKey[key] == nil {
 			idsByFilenameKey[key] = make(map[string]struct{})
 		}
@@ -191,7 +192,7 @@ func filenameSuffixes(tracks []model.Track, dirs []string) []string {
 
 	suffixes := make([]string, len(tracks))
 	for position, track := range tracks {
-		if len(idsByFilenameKey[collisionKey(dirs[position], track)]) > 1 {
+		if len(idsByFilenameKey[collisionKey(dirs[position], track, mask)]) > 1 {
 			suffixes[position] = fmt.Sprintf("[%s]", track.ID.String())
 		}
 	}
@@ -199,8 +200,8 @@ func filenameSuffixes(tracks []model.Track, dirs []string) []string {
 	return suffixes
 }
 
-func collisionKey(dir string, track model.Track) string {
-	return dir + "\x00" + ya.TrackFilenameKey(track)
+func collisionKey(dir string, track model.Track, mask string) string {
+	return dir + "\x00" + layout.TrackFilenameBase(track, mask)
 }
 
 func formatFromFilename(filename string) Container {

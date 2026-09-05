@@ -438,7 +438,7 @@ func (c *Client) downloadTrackMP3(track model.Track, outputDir string, options D
 	}
 
 	trackCtx := utils.NewTrackLogContext(track)
-	filename := buildTrackFilename(track, outputDir, options.FilenameSuffix)
+	filename := buildTrackFilename(track, outputDir, options)
 	c.logTrack(slog.LevelInfo, trackCtx, "download started",
 		"stage", "start",
 		"filename", filename,
@@ -550,7 +550,7 @@ func (c *Client) downloadTrackLossless(track model.Track, outputDir string, opti
 		return "", fmt.Errorf("failed to get lossless download info: %w", err)
 	}
 
-	filename := buildTrackFilenameWithExtension(track, outputDir, losslessExtensionForCodec(info.Codec), options.FilenameSuffix)
+	filename := buildTrackFilenameWithExtension(track, outputDir, losslessExtensionForCodec(info.Codec), options)
 	c.logTrack(slog.LevelInfo, trackCtx, "lossless target resolved",
 		"stage", "resolve_lossless_target",
 		"filename", filename,
@@ -640,17 +640,22 @@ func (c *Client) waitCoverDownload(trackCtx utils.TrackLogContext, coverCh <-cha
 	return cover
 }
 
-func buildTrackFilename(track model.Track, outputDir, filenameSuffix string) string {
-	return buildTrackFilenameWithExtension(track, outputDir, ".mp3", filenameSuffix)
+func buildTrackFilename(track model.Track, outputDir string, options DownloadOptions) string {
+	return buildTrackFilenameWithExtension(track, outputDir, ".mp3", options)
 }
 
-func buildTrackFilenameWithExtension(track model.Track, outputDir, extension, filenameSuffix string) string {
+func buildTrackFilenameWithExtension(track model.Track, outputDir, extension string, options DownloadOptions) string {
 	if !strings.HasPrefix(extension, ".") {
 		extension = "." + extension
 	}
-	filename := TrackFilenameKey(track)
-	if filenameSuffix != "" {
-		filename += " " + filenameSuffix
+	filename := strings.TrimSpace(options.FilenameBase)
+	if filename == "" {
+		filename = TrackFilenameKey(track)
+	} else {
+		filename = utils.SanitizeFilename(filename)
+	}
+	if options.FilenameSuffix != "" {
+		filename += " " + options.FilenameSuffix
 	}
 	return filepath.Join(outputDir, filename+extension)
 }

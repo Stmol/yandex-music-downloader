@@ -155,7 +155,9 @@ func (s *DownloadSession) runTrack(
 		return
 	}
 
-	filePath, err := s.client.DownloadTrackWithOptions(*item.track, dir, s.options)
+	options := s.options
+	options.FilenameBase = layout.TrackFilenameBase(*item.track, s.layout.TrackFileMask)
+	filePath, err := s.client.DownloadTrackWithOptions(*item.track, dir, options)
 	if err != nil {
 		item.status = TrackStatusError
 		item.errMsg = err.Error()

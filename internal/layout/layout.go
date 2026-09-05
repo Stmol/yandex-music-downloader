@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -72,8 +73,63 @@ func ApplyAlbumDirMask(mask string, year int, title string) string {
 	if year > 0 {
 		yearStr = strconv.Itoa(year)
 	}
-	result := strings.ReplaceAll(mask, "{year}", yearStr)
-	result = strings.ReplaceAll(result, "{title}", strings.TrimSpace(title))
+	return applyMask(mask, [][2]string{
+		{"{year}", yearStr},
+		{"{title}", strings.TrimSpace(title)},
+	})
+}
+
+// TrackFilenameBase builds a sanitized file name from the mask.
+func TrackFilenameBase(track model.Track, mask string) string {
+	name := ApplyTrackFileMask(mask, track)
+	if name == "" {
+		name = strings.TrimSpace(track.ID.String())
+	}
+	return sanitizeSegment(name)
+}
+
+// ApplyTrackFileMask fills the track number, year, album, title and artist into the file mask.
+func ApplyTrackFileMask(mask string, track model.Track) string {
+	if strings.TrimSpace(mask) == "" {
+		mask = config.DefaultTrackMask
+	}
+
+	n := ""
+	nn := ""
+	year := ""
+	albumTitle := ""
+	if len(track.Albums) > 0 {
+		album := track.Albums[0]
+		if album.TrackPosition.Index > 0 {
+			n = strconv.Itoa(album.TrackPosition.Index)
+			nn = fmtTrackNumber(album.TrackPosition.Index)
+		}
+		if album.Year > 0 {
+			year = strconv.Itoa(album.Year)
+		}
+		albumTitle = strings.TrimSpace(album.Title)
+	}
+
+	// Replace {nn} before {n}, otherwise "{nn}" would become "{5n}".
+	return applyMask(mask, [][2]string{
+		{"{nn}", nn},
+		{"{n}", n},
+		{"{year}", year},
+		{"{album}", albumTitle},
+		{"{title}", strings.TrimSpace(track.FullTitle())},
+		{"{artist}", strings.TrimSpace(track.ArtistsString())},
+	})
+}
+
+func fmtTrackNumber(index int) string {
+	return fmt.Sprintf("%02d", index)
+}
+
+func applyMask(mask string, replacements [][2]string) string {
+	result := mask
+	for _, pair := range replacements {
+		result = strings.ReplaceAll(result, pair[0], pair[1])
+	}
 	result = strings.Join(strings.Fields(result), " ")
 	return strings.Trim(result, " -")
 }

@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- add `track_file_mask` so downloaded filenames can include a padded or plain track number, year, album title, and track title
 
 ## v1.14.0 - 2026-10-16
 - add artist page URLs to the TUI and `yamdl download`: an artist link downloads the artist's own albums and singles, retrying album requests on HTTP 429 and 5xx responses; an album that keeps failing is skipped and reported as a warning in the CLI and the TUI
