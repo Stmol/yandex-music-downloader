@@ -18,6 +18,7 @@ type Track struct {
 	MetaData          MetaData   `json:"metaData,omitempty"`
 	Title             string     `json:"title"`
 	Version           string     `json:"version"`
+	PlaylistIndex     int        `json:"-"`
 }
 
 func (t Track) FullTitle() string {

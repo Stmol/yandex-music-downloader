@@ -188,6 +188,46 @@ func TestRunWritesTracksIntoLayoutDirectories(t *testing.T) {
 	assert.Equal(t, filepath.Join(outputDir, "ABBA", "1975 - SOS"), downloads["2"].dir)
 }
 
+func TestRunWritesPlaylistTracksIntoFlatDirectory(t *testing.T) {
+	client := &recordingClient{}
+	outputDir := t.TempDir()
+	events := collect(Run(Config{
+		Client:    client,
+		OutputDir: outputDir,
+		Layout: config.Layout{
+			ByArtist:     true,
+			ByAlbum:      true,
+			ByPlaylist:   true,
+			AlbumDirMask: "{year} - {title}",
+		},
+		FolderArtist:   "ABBA",
+		FolderPlaylist: "Favorites",
+		Tracks: []model.Track{
+			{
+				ID:        "1",
+				Title:     "Dancing Queen",
+				Artists:   []model.Artist{{Name: "ABBA"}},
+				Available: true,
+				Albums:    []model.Album{{Title: "Arrival", Year: 1976}},
+			},
+			{
+				ID:        "2",
+				Title:     "SOS",
+				Artists:   []model.Artist{{Name: "ABBA"}},
+				Available: true,
+				Albums:    []model.Album{{Title: "SOS", Year: 1975}},
+			},
+		},
+		Concurrency: 1,
+	}))
+
+	require.Len(t, events, 4)
+	downloads := client.downloadsByID()
+	wantDir := filepath.Join(outputDir, "Favorites")
+	assert.Equal(t, wantDir, downloads["1"].dir)
+	assert.Equal(t, wantDir, downloads["2"].dir)
+}
+
 func TestRunSuffixesFilenameCollisionsOnlyInsideTheSameDirectory(t *testing.T) {
 	client := &recordingClient{}
 	events := collect(Run(Config{

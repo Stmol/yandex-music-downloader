@@ -32,13 +32,14 @@ type Client interface {
 	Chart(region string) (*model.Playlist, error)
 }
 
-// Result holds the resolved tracks and the artist name used for the folder
-// layout. For an artist link, SkippedAlbums lists the albums that could not be
-// loaded, so callers can report an incomplete discography.
+// Result holds the resolved tracks and the folder names used for the layout.
+// For an artist link, SkippedAlbums lists the albums that could not be loaded,
+// so callers can report an incomplete discography.
 type Result struct {
-	Tracks        []model.Track
-	FolderArtist  string
-	SkippedAlbums []SkippedAlbum
+	Tracks         []model.Track
+	FolderArtist   string
+	FolderPlaylist string
+	SkippedAlbums  []SkippedAlbum
 }
 
 // SkippedAlbum is an album that was left out because it kept failing to load.
@@ -74,7 +75,10 @@ func resolvePlaylist(load func() (*model.Playlist, error)) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Tracks: playlist.TracksList()}, nil
+	return Result{
+		Tracks:         playlist.TracksList(),
+		FolderPlaylist: strings.TrimSpace(playlist.Title),
+	}, nil
 }
 
 func resolveRef(client Client, ref *Ref) (Result, error) {

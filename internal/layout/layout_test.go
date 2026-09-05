@@ -76,6 +76,54 @@ func TestTrackOutputDirOmitsAlbumSegmentWithoutMetadata(t *testing.T) {
 	assert.Equal(t, filepath.Join("downloads", "ABBA"), got)
 }
 
+func TestTrackOutputDirGroupsPlaylistFlatIgnoringArtistAndAlbum(t *testing.T) {
+	track := sampleTrack()
+	got := TrackOutputDir("downloads", track, Options{
+		Layout: config.Layout{
+			ByArtist:     true,
+			ByAlbum:      true,
+			ByPlaylist:   true,
+			AlbumDirMask: "{year} - {title}",
+		},
+		FolderArtist:   "ABBA",
+		FolderPlaylist: "Favorites",
+	})
+	assert.Equal(t, filepath.Join("downloads", "Favorites"), got)
+}
+
+func TestTrackOutputDirFallsBackWithoutPlaylistName(t *testing.T) {
+	track := sampleTrack()
+	got := TrackOutputDir("downloads", track, Options{
+		Layout: config.Layout{
+			ByArtist:     true,
+			ByAlbum:      true,
+			ByPlaylist:   true,
+			AlbumDirMask: "{year} - {title}",
+		},
+		FolderArtist: "ABBA",
+	})
+	assert.Equal(t, filepath.Join("downloads", "ABBA", "1975 - Arrival"), got)
+}
+
+func TestTrackOutputDirIgnoresPlaylistNameWhenFlagDisabled(t *testing.T) {
+	track := sampleTrack()
+	got := TrackOutputDir("downloads", track, Options{
+		Layout:         config.Layout{ByArtist: true},
+		FolderArtist:   "ABBA",
+		FolderPlaylist: "Favorites",
+	})
+	assert.Equal(t, filepath.Join("downloads", "ABBA"), got)
+}
+
+func TestTrackOutputDirSanitizesPlaylistFolder(t *testing.T) {
+	track := sampleTrack()
+	got := TrackOutputDir("downloads", track, Options{
+		Layout:         config.Layout{ByPlaylist: true},
+		FolderPlaylist: "My/Playlist: Mix",
+	})
+	assert.Equal(t, filepath.Join("downloads", "My_Playlist_ Mix"), got)
+}
+
 func TestTrackOutputDirSanitizesPathSegments(t *testing.T) {
 	track := model.Track{
 		Artists: []model.Artist{{Name: "AC/DC"}},
@@ -129,6 +177,23 @@ func TestApplyTrackFileMaskDropsMissingValues(t *testing.T) {
 	assert.Equal(t, "Mamma Mia", ApplyTrackFileMask("{nn} - {title}", track))
 	assert.Equal(t, "Mamma Mia", ApplyTrackFileMask("{n} - {year} - {album} - {title}", track))
 	assert.Equal(t, "Mamma Mia", ApplyTrackFileMask("{artist} - {title}", track))
+}
+
+func TestApplyTrackFileMaskPrefersPlaylistIndexOverAlbumPosition(t *testing.T) {
+	track := sampleTrack()
+	track.PlaylistIndex = 3
+	assert.Equal(t, "03 - Mamma Mia", ApplyTrackFileMask("{nn} - {title}", track))
+	assert.Equal(t, "3 - Mamma Mia", ApplyTrackFileMask("{n} - {title}", track))
+}
+
+func TestApplyTrackFileMaskUsesPlaylistIndexWithoutAlbum(t *testing.T) {
+	track := model.Track{Title: "Mamma Mia", PlaylistIndex: 4}
+	assert.Equal(t, "04 - Mamma Mia", ApplyTrackFileMask("{nn} - {title}", track))
+}
+
+func TestApplyTrackFileMaskUsesAlbumPositionWithoutPlaylistIndex(t *testing.T) {
+	track := sampleTrack()
+	assert.Equal(t, "01 - Mamma Mia", ApplyTrackFileMask("{nn} - {title}", track))
 }
 
 func TestApplyTrackFileMaskUsesFullTitleAndDefaultMask(t *testing.T) {

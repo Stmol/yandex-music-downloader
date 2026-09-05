@@ -95,14 +95,16 @@ By default, tracks are saved as `Artist - Title.ext` directly in the output dire
 layout:
   by_artist: true
   by_album: true
+  by_playlist: true
   album_dir_mask: "{year} - {title}"
   track_file_mask: "{nn} - {title}"
 ```
 
 - `by_artist` puts files into a folder named after the artist. For an artist page, that is the page artist even on featured tracks.
 - `by_album` puts each album or single into its own folder. Albums and singles stay on the same level; there are no extra `Albums/` or `Singles/` parents.
+- `by_playlist` puts playlist and chart tracks into a single folder named after the playlist, as a flat list. In that case `by_artist` and `by_album` are ignored. Other sources are unchanged.
 - `album_dir_mask` names the release folder. Placeholders are `{year}` and `{title}`. A missing year is omitted, so `{year} - {title}` becomes `Arrival`.
-- `track_file_mask` names the audio file (without extension). Placeholders are `{n}` (track number), `{nn}` (zero-padded track number), `{year}`, `{album}`, `{title}` (track title), and `{artist}`. Missing values are omitted, so `{nn} - {title}` without a track number becomes `Mamma Mia`. The default is `{artist} - {title}`.
+- `track_file_mask` names the audio file (without extension). Placeholders are `{n}` (track number), `{nn}` (zero-padded track number), `{year}`, `{album}`, `{title}` (track title), and `{artist}`. For playlists and charts `{n}` and `{nn}` are the position in the playlist, not the original album track number. Missing values are omitted, so `{nn} - {title}` without a track number becomes `Mamma Mia`. The default is `{artist} - {title}`.
 
 Example with both flags and `{nn} - {title}`:
 
@@ -115,7 +117,16 @@ downloads/
       01 - Dancing Queen.m4a
 ```
 
-Artist page URLs such as `https://music.yandex.ru/artist/170660` download that artist's own albums and singles (not compilation appearances). The same layout applies to tracks, albums, playlists, and charts.
+Example playlist download with `by_playlist: true`:
+
+```text
+downloads/
+  Favorites/
+    01 - Mamma Mia.m4a
+    03 - SOS.m4a
+```
+
+Artist page URLs such as `https://music.yandex.ru/artist/170660` download that artist's own albums and singles (not compilation appearances). The same artist/album layout applies to tracks and albums; playlists and charts use `by_playlist` when it is enabled.
 
 ## Authentication Token
 

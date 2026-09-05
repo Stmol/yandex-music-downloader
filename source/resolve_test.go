@@ -105,6 +105,7 @@ func TestResolveAlbumFlattensVolumes(t *testing.T) {
 func TestResolveLegacyPlaylistExtractsTracks(t *testing.T) {
 	client := &fakeSourceClient{
 		legacyPlaylist: &model.Playlist{
+			Title: "Favorites",
 			Tracks: []model.TrackShort{
 				{Track: model.Track{ID: model.FlexibleID("10"), Title: "One"}},
 			},
@@ -115,12 +116,14 @@ func TestResolveLegacyPlaylistExtractsTracks(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Tracks, 1)
 	assert.Equal(t, "10", result.Tracks[0].ID.String())
+	assert.Equal(t, "Favorites", result.FolderPlaylist)
 }
 
 func TestResolveUUIDPlaylistExtractsTracks(t *testing.T) {
 	playlistUUID := uuid.NewString()
 	client := &fakeSourceClient{
 		uuidPlaylist: &model.Playlist{
+			Title: "  Summer Mix  ",
 			Tracks: []model.TrackShort{
 				{Track: model.Track{ID: model.FlexibleID("20"), Title: "Two"}},
 			},
@@ -131,11 +134,13 @@ func TestResolveUUIDPlaylistExtractsTracks(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Tracks, 1)
 	assert.Equal(t, "20", result.Tracks[0].ID.String())
+	assert.Equal(t, "Summer Mix", result.FolderPlaylist)
 }
 
 func TestResolveChartExtractsTracks(t *testing.T) {
 	client := &fakeSourceClient{
 		chart: &model.Playlist{
+			Title: "World Chart",
 			Tracks: []model.TrackShort{
 				{Track: model.Track{ID: model.FlexibleID("30"), Title: "Chart hit"}},
 			},
@@ -146,11 +151,13 @@ func TestResolveChartExtractsTracks(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Tracks, 1)
 	assert.Equal(t, "30", result.Tracks[0].ID.String())
+	assert.Equal(t, "World Chart", result.FolderPlaylist)
 }
 
 func TestResolvePlaylistLoadsTracks(t *testing.T) {
 	result, err := resolvePlaylist(func() (*model.Playlist, error) {
 		return &model.Playlist{
+			Title: "Loaded List",
 			Tracks: []model.TrackShort{
 				{Track: model.Track{ID: model.FlexibleID("40"), Title: "Loaded"}},
 			},
@@ -159,6 +166,7 @@ func TestResolvePlaylistLoadsTracks(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Tracks, 1)
 	assert.Equal(t, "40", result.Tracks[0].ID.String())
+	assert.Equal(t, "Loaded List", result.FolderPlaylist)
 }
 
 func TestResolvePlaylistPropagatesLoadError(t *testing.T) {
