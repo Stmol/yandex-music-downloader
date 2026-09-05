@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"runtime/debug"
 	"sync"
+	"ya-music/internal/config"
+	"ya-music/internal/layout"
 	"ya-music/utils"
 	"ya-music/ya"
 	"ya-music/ya/model"
@@ -31,11 +33,18 @@ type DownloadSessionEvent struct {
 }
 
 type DownloadSession struct {
-	client      downloadTrackClient
-	logger      *utils.DownloadLogger
-	options     ya.DownloadOptions
-	outputDir   string
-	concurrency int
+	client       downloadTrackClient
+	logger       *utils.DownloadLogger
+	options      ya.DownloadOptions
+	outputDir    string
+	concurrency  int
+	layout       config.Layout
+	folderArtist string
+}
+
+type SessionConfig struct {
+	Layout       config.Layout
+	FolderArtist string
 }
 
 func NewDownloadSession(
@@ -43,17 +52,24 @@ func NewDownloadSession(
 	logger *utils.DownloadLogger,
 	options ya.DownloadOptions,
 	outputDir string,
+	sessionConfig ...SessionConfig,
 ) *DownloadSession {
 	if logger == nil {
 		logger = utils.NewDiscardDownloadLogger()
 	}
+	cfg := SessionConfig{}
+	if len(sessionConfig) > 0 {
+		cfg = sessionConfig[0]
+	}
 
 	return &DownloadSession{
-		client:      client,
-		logger:      logger,
-		options:     options,
-		outputDir:   outputDir,
-		concurrency: maxConcurrentDownloads,
+		client:       client,
+		logger:       logger,
+		options:      options,
+		outputDir:    outputDir,
+		concurrency:  maxConcurrentDownloads,
+		layout:       cfg.Layout,
+		folderArtist: cfg.FolderArtist,
 	}
 }
 
@@ -123,7 +139,23 @@ func (s *DownloadSession) runTrack(
 	)
 	events <- DownloadSessionEvent{Progress: item}
 
-	filePath, err := s.client.DownloadTrackWithOptions(*item.track, s.outputDir, s.options)
+	dir := layout.TrackOutputDir(s.outputDir, *item.track, layout.Options{
+		Layout:       s.layout,
+		FolderArtist: s.folderArtist,
+	})
+	if err := utils.CreateDirIfNotExists(dir); err != nil {
+		item.status = TrackStatusError
+		item.errMsg = err.Error()
+		s.logger.LogTrack(slog.LevelError, trackCtx, "worker finished with error",
+			"stage", "create_output_dir",
+			"status", item.status.String(),
+			"error", err,
+		)
+		events <- DownloadSessionEvent{Progress: item, Completed: true}
+		return
+	}
+
+	filePath, err := s.client.DownloadTrackWithOptions(*item.track, dir, s.options)
 	if err != nil {
 		item.status = TrackStatusError
 		item.errMsg = err.Error()

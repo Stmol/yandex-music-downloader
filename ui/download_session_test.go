@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"path/filepath"
 	"testing"
 	"time"
+	"ya-music/internal/config"
 	"ya-music/utils"
 	"ya-music/ya"
 	"ya-music/ya/model"
@@ -13,6 +15,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type recordingDownloadClient struct {
+	dir string
+}
 
 type fakeDownloadClient struct {
 	filename string
@@ -25,6 +31,56 @@ func (f *fakeDownloadClient) DownloadTrackWithOptions(
 	ya.DownloadOptions,
 ) (string, error) {
 	return f.filename, f.err
+}
+
+func (c *recordingDownloadClient) DownloadTrackWithOptions(
+	_ model.Track,
+	outputDir string,
+	_ ya.DownloadOptions,
+) (string, error) {
+	c.dir = outputDir
+	return filepath.Join(outputDir, "Song.mp3"), nil
+}
+
+func TestDownloadSessionUsesLayoutDirectory(t *testing.T) {
+	client := &recordingDownloadClient{}
+	outputDir := t.TempDir()
+	session := NewDownloadSession(
+		client,
+		utils.NewDiscardDownloadLogger(),
+		ya.DownloadOptions{},
+		outputDir,
+		SessionConfig{
+			Layout: config.Layout{
+				ByArtist:     true,
+				ByAlbum:      true,
+				AlbumDirMask: "{year} - {title}",
+			},
+			FolderArtist: "ABBA",
+		},
+	)
+
+	var final DownloadSessionEvent
+	for event := range session.Run([]TrackProgress{{
+		uid: "track-1",
+		track: &model.Track{
+			ID:        model.FlexibleID("1"),
+			Title:     "Mamma Mia",
+			Artists:   []model.Artist{{Name: "ABBA"}},
+			Available: true,
+			Albums:    []model.Album{{Title: "ABBA", Year: 1975}},
+		},
+		status: TrackStatusReady,
+	}}) {
+		if event.Completed {
+			final = event
+		}
+	}
+
+	wantDir := filepath.Join(outputDir, "ABBA", "1975 - ABBA")
+	assert.Equal(t, TrackStatusDownloaded, final.Progress.status)
+	assert.Equal(t, wantDir, client.dir)
+	assert.Equal(t, filepath.Join(wantDir, "Song.mp3"), final.Progress.filename)
 }
 
 func TestDownloadSessionEmitsSnapshotsWithoutMutatingInput(t *testing.T) {

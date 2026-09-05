@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"ya-music/internal/config"
 	"ya-music/ui"
 	"ya-music/utils"
 	"ya-music/ya"
@@ -21,6 +22,12 @@ func runTUI(args []string, stderr io.Writer) int {
 	}
 	options := parsed.options
 
+	cfg, err := config.Load(options.configPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+
 	if isKnownProblematicTerm(os.Getenv("TERM")) {
 		fmt.Fprintln(stderr, problematicTermWarning(os.Getenv("TERM")))
 		return 2
@@ -34,7 +41,7 @@ func runTUI(args []string, stderr io.Writer) int {
 	defer signal.Stop(sigCh)
 
 	downloadOptions := ya.DownloadOptions{SkipCover: options.skipCover}
-	prog := tea.NewProgram(ui.StartUi(client, downloadOptions))
+	prog := tea.NewProgram(ui.StartUiWithLayout(client, downloadOptions, cfg.Layout))
 
 	go func() {
 		sig := <-sigCh

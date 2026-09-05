@@ -27,6 +27,8 @@ type fakeMusicAPI struct {
 func (api *fakeMusicAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch {
+	case strings.HasSuffix(r.URL.Path, "/brief-info"):
+		_, _ = fmt.Fprint(w, `{"result":{"artist":{"id":170660,"name":"ABBA"}}}`)
 	case strings.HasSuffix(r.URL.Path, "/direct-albums"):
 		_, _ = fmt.Fprint(w, `{"result":{"albums":[{"id":1,"title":"Arrival","year":1976},{"id":2,"title":"SOS","year":1975}],"pager":{"total":2,"page":0,"perPage":50}}}`)
 	case strings.HasPrefix(r.URL.Path, "/albums/"):
@@ -125,6 +127,8 @@ func TestResolveArtistEscapesSkippedAlbumIDWithoutTitle(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case strings.HasSuffix(r.URL.Path, "/brief-info"):
+			_, _ = fmt.Fprint(w, `{"result":{"artist":{"id":170660,"name":"ABBA"}}}`)
 		case strings.HasSuffix(r.URL.Path, "/direct-albums"):
 			_, _ = fmt.Fprint(w, `{"result":{"albums":[{"id":1,"title":"Arrival"},{"id":"2\u001b[2J"}],"pager":{"total":2,"page":0,"perPage":50}}}`)
 		case strings.HasPrefix(r.URL.Path, "/albums/1/"):

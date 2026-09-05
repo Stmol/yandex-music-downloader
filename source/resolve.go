@@ -25,16 +25,19 @@ func defaultAlbumFetchRetryBackoff(attempt int) time.Duration {
 type Client interface {
 	TrackInfo(id string) (*model.Track, error)
 	AlbumWithTracks(id string) (*model.Album, error)
+	ArtistInfo(id string) (*model.Artist, error)
 	ArtistDirectAlbums(id string) ([]model.Album, error)
 	UsersPlaylist(id string, username string) (*model.Playlist, error)
 	PlaylistByUUID(id string) (*model.Playlist, error)
 	Chart(region string) (*model.Playlist, error)
 }
 
-// Result holds the resolved tracks. For an artist link, SkippedAlbums lists the
-// albums that could not be loaded, so callers can report an incomplete discography.
+// Result holds the resolved tracks and the artist name used for the folder
+// layout. For an artist link, SkippedAlbums lists the albums that could not be
+// loaded, so callers can report an incomplete discography.
 type Result struct {
 	Tracks        []model.Track
+	FolderArtist  string
 	SkippedAlbums []SkippedAlbum
 }
 
@@ -63,39 +66,33 @@ func Resolve(client Client, input string) (Result, error) {
 }
 
 func ResolveRef(client Client, ref *Ref) (Result, error) {
-	if ref.Kind == KindArtist {
-		return resolveArtist(client, ref.ArtistID)
-	}
-	tracks, err := resolveRef(client, ref)
-	return Result{Tracks: tracks}, err
+	return resolveRef(client, ref)
 }
 
-func resolvePlaylist(load func() (*model.Playlist, error)) ([]model.Track, error) {
+func resolvePlaylist(load func() (*model.Playlist, error)) (Result, error) {
 	playlist, err := load()
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
-	return playlist.TracksList(), nil
+	return Result{Tracks: playlist.TracksList()}, nil
 }
 
-func resolveRef(client Client, ref *Ref) ([]model.Track, error) {
+func resolveRef(client Client, ref *Ref) (Result, error) {
 	switch ref.Kind {
 	case KindTrack:
 		track, err := client.TrackInfo(ref.TrackID)
 		if err != nil {
-			return nil, err
+			return Result{}, err
 		}
-		return []model.Track{*track}, nil
+		return Result{Tracks: []model.Track{*track}}, nil
 	case KindAlbum:
 		album, err := client.AlbumWithTracks(ref.AlbumID)
 		if err != nil {
-			return nil, err
+			return Result{}, err
 		}
-		var tracks []model.Track
-		for _, volume := range album.Volumes {
-			tracks = append(tracks, volume...)
-		}
-		return tracks, nil
+		return Result{Tracks: attachAlbumMeta(flattenVolumes(album), *album)}, nil
+	case KindArtist:
+		return resolveArtist(client, ref.ArtistID)
 	case KindLegacyPlaylist:
 		return resolvePlaylist(func() (*model.Playlist, error) {
 			return client.UsersPlaylist(ref.PlaylistID, ref.Username)
@@ -109,21 +106,32 @@ func resolveRef(client Client, ref *Ref) ([]model.Track, error) {
 			return client.Chart(ref.Region)
 		})
 	default:
-		return nil, fmt.Errorf("unsupported URL type")
+		return Result{}, fmt.Errorf("unsupported URL type")
 	}
 }
 
-// resolveArtist returns the tracks of the artist's own albums and singles.
+// resolveArtist returns the tracks of the artist's own albums and singles,
+// and the artist name used for the folder layout.
 func resolveArtist(client Client, artistID string) (Result, error) {
+	artist, err := client.ArtistInfo(artistID)
+	if err != nil {
+		return Result{}, err
+	}
+	folderArtist := ""
+	if artist != nil {
+		folderArtist = strings.TrimSpace(artist.Name)
+	}
+
 	albums, err := client.ArtistDirectAlbums(artistID)
 	if err != nil {
 		return Result{}, err
 	}
+
 	tracks, skipped, err := collectArtistAlbumTracks(client, albums)
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Tracks: tracks, SkippedAlbums: skipped}, nil
+	return Result{Tracks: tracks, FolderArtist: folderArtist, SkippedAlbums: skipped}, nil
 }
 
 // collectArtistAlbumTracks loads every album with a small concurrency limit.

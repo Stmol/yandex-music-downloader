@@ -794,6 +794,38 @@ func minimalFLACBytes() []byte {
 	return data
 }
 
+func TestArtistInfoParsesBriefInfoResult(t *testing.T) {
+	client := newAPIClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/artists/170660/brief-info", r.URL.Path)
+		_, _ = w.Write([]byte(`{"result":{"artist":{"id":170660,"name":"ABBA"}}}`))
+	}))
+
+	artist, err := client.ArtistInfo("170660")
+	require.NoError(t, err)
+	assert.Equal(t, "170660", artist.ID.String())
+	assert.Equal(t, "ABBA", artist.Name)
+}
+
+func TestParseArtistInfoAcceptsObjectAndArray(t *testing.T) {
+	artist, err := parseArtistInfo([]byte(`{"result":{"id":170660,"name":"ABBA"}}`))
+	require.NoError(t, err)
+	assert.Equal(t, "ABBA", artist.Name)
+
+	artist, err = parseArtistInfo([]byte(`{"result":[{"id":"170660","name":"ABBA"}]}`))
+	require.NoError(t, err)
+	assert.Equal(t, "ABBA", artist.Name)
+}
+
+func TestArtistInfoReturnsNotFound(t *testing.T) {
+	client := newAPIClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"result":{}}`))
+	}))
+
+	_, err := client.ArtistInfo("0")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "artist not found")
+}
+
 func TestArtistDirectAlbumsPaginatesUntilTotal(t *testing.T) {
 	var pages []string
 	client := newAPIClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

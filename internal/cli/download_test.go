@@ -438,6 +438,10 @@ func (*blockingPreflightClient) AlbumWithTracks(string) (*model.Album, error) {
 	panic("AlbumWithTracks must not be called after account cancellation")
 }
 
+func (*blockingPreflightClient) ArtistInfo(string) (*model.Artist, error) {
+	panic("ArtistInfo must not be called after account cancellation")
+}
+
 func (*blockingPreflightClient) ArtistDirectAlbums(string) ([]model.Album, error) {
 	panic("ArtistDirectAlbums must not be called after account cancellation")
 }
@@ -473,6 +477,10 @@ func (c *blockingSourcePreflightClient) TrackInfo(string) (*model.Track, error) 
 
 func (*blockingSourcePreflightClient) AlbumWithTracks(string) (*model.Album, error) {
 	panic("AlbumWithTracks must not be called for a track URL")
+}
+
+func (*blockingSourcePreflightClient) ArtistInfo(string) (*model.Artist, error) {
+	panic("ArtistInfo must not be called for a track URL")
 }
 
 func (*blockingSourcePreflightClient) ArtistDirectAlbums(string) ([]model.Album, error) {
@@ -561,6 +569,10 @@ func (*artistPreflightClient) AlbumWithTracks(id string) (*model.Album, error) {
 		Title:   "Arrival",
 		Volumes: [][]model.Track{{{ID: model.FlexibleID("10"), Title: "Dancing Queen", Available: true}}},
 	}, nil
+}
+
+func (*artistPreflightClient) ArtistInfo(string) (*model.Artist, error) {
+	return &model.Artist{ID: model.FlexibleID("170660"), Name: "ABBA"}, nil
 }
 
 func (*artistPreflightClient) ArtistDirectAlbums(string) ([]model.Album, error) {

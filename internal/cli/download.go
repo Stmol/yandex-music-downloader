@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 	"ya-music/internal/batch"
+	"ya-music/internal/config"
 	"ya-music/source"
 	"ya-music/utils"
 	"ya-music/ya"
@@ -43,6 +44,12 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 		return parsed.exitCode
 	}
 	options := parsed.options
+
+	cfg, err := config.Load(options.configPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 
 	downloadLogger, client := newLoggedClient(options.timeoutSeconds, stderr)
 	defer downloadLogger.Close()
@@ -87,10 +94,12 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 	summary, interrupted := consumeDownloadEventsWithFlush(
 		stdout,
 		batch.Run(batch.Config{
-			Client:    client,
-			Tracks:    tracks,
-			OutputDir: options.output,
-			Context:   batchContext,
+			Client:       client,
+			Tracks:       tracks,
+			OutputDir:    options.output,
+			Context:      batchContext,
+			Layout:       cfg.Layout,
+			FolderArtist: preflight.folderArtist,
 			Options: ya.DownloadOptions{
 				SkipCover:   options.skipCover,
 				AudioFormat: options.format,
@@ -149,6 +158,7 @@ type downloadPreflightClient interface {
 
 type downloadPreflightResult struct {
 	tracks        []model.Track
+	folderArtist  string
 	skippedAlbums []source.SkippedAlbum
 	err           error
 }
@@ -178,7 +188,11 @@ func runDownloadPreflight(client downloadPreflightClient, link string) downloadP
 	if len(result.Tracks) == 0 {
 		return downloadPreflightResult{err: errors.New("failed to resolve source: no tracks found")}
 	}
-	return downloadPreflightResult{tracks: result.Tracks, skippedAlbums: result.SkippedAlbums}
+	return downloadPreflightResult{
+		tracks:        result.Tracks,
+		folderArtist:  result.FolderArtist,
+		skippedAlbums: result.SkippedAlbums,
+	}
 }
 
 func awaitDownloadPreflight(

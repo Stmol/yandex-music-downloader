@@ -78,6 +78,35 @@ func TestParseDownloadOptionsAcceptsCurrentDownloadFlags(t *testing.T) {
 	}
 }
 
+func TestParseDownloadOptionsAcceptsConfigAndArtistLink(t *testing.T) {
+	var stderr bytes.Buffer
+	parsed := parseDownloadOptions([]string{
+		"--token", "abc123",
+		"--link", "https://music.yandex.ru/artist/170660",
+		"--config", "./yamdl.yaml",
+	}, &stderr)
+	if !parsed.proceed {
+		t.Fatalf("expected proceed, exit code = %d, stderr: %s", parsed.exitCode, stderr.String())
+	}
+	if parsed.options.configPath != "./yamdl.yaml" {
+		t.Fatalf("configPath = %q", parsed.options.configPath)
+	}
+	if parsed.options.link != "https://music.yandex.ru/artist/170660" {
+		t.Fatalf("link = %q", parsed.options.link)
+	}
+}
+
+func TestParseTUIOptionsAcceptsConfigPath(t *testing.T) {
+	var stderr bytes.Buffer
+	parsed := parseTUIOptions([]string{"--config", "custom.yaml"}, &stderr)
+	if !parsed.proceed {
+		t.Fatalf("expected proceed, exit code = %d, stderr: %s", parsed.exitCode, stderr.String())
+	}
+	if parsed.options.configPath != "custom.yaml" {
+		t.Fatalf("configPath = %q", parsed.options.configPath)
+	}
+}
+
 func TestParseDownloadOptionsRejectsInvalidInput(t *testing.T) {
 	tests := [][]string{
 		{"--link", "https://music.yandex.ru/album/123"},
