@@ -2,8 +2,12 @@ package source
 
 import (
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
+	"time"
 
+	"ya-music/utils"
 	"ya-music/ya/model"
 
 	"github.com/google/uuid"
@@ -16,36 +20,62 @@ type fakeSourceClient struct {
 	trackErr          error
 	album             *model.Album
 	albumErr          error
+	albumsByID        map[string]*model.Album
+	directAlbums      []model.Album
+	directAlbumsErr   error
 	legacyPlaylist    *model.Playlist
 	legacyPlaylistErr error
 	uuidPlaylist      *model.Playlist
 	uuidPlaylistErr   error
 	chart             *model.Playlist
 	chartErr          error
+	albumCallErrs     map[string][]error
+	mu                sync.Mutex
 }
 
-func (f fakeSourceClient) TrackInfo(string) (*model.Track, error) {
+func (f *fakeSourceClient) TrackInfo(string) (*model.Track, error) {
 	return f.track, f.trackErr
 }
 
-func (f fakeSourceClient) AlbumWithTracks(string) (*model.Album, error) {
+func (f *fakeSourceClient) AlbumWithTracks(id string) (*model.Album, error) {
+	f.mu.Lock()
+	if errs := f.albumCallErrs[id]; len(errs) > 0 {
+		err := errs[0]
+		f.albumCallErrs[id] = errs[1:]
+		f.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		f.mu.Unlock()
+	}
+	if f.albumsByID != nil {
+		if album, ok := f.albumsByID[id]; ok {
+			return album, nil
+		}
+		return nil, fmt.Errorf("album not found")
+	}
 	return f.album, f.albumErr
 }
 
-func (f fakeSourceClient) UsersPlaylist(string, string) (*model.Playlist, error) {
+func (f *fakeSourceClient) ArtistDirectAlbums(string) ([]model.Album, error) {
+	return f.directAlbums, f.directAlbumsErr
+}
+
+func (f *fakeSourceClient) UsersPlaylist(string, string) (*model.Playlist, error) {
 	return f.legacyPlaylist, f.legacyPlaylistErr
 }
 
-func (f fakeSourceClient) PlaylistByUUID(string) (*model.Playlist, error) {
+func (f *fakeSourceClient) PlaylistByUUID(string) (*model.Playlist, error) {
 	return f.uuidPlaylist, f.uuidPlaylistErr
 }
 
-func (f fakeSourceClient) Chart(string) (*model.Playlist, error) {
+func (f *fakeSourceClient) Chart(string) (*model.Playlist, error) {
 	return f.chart, f.chartErr
 }
 
 func TestResolveAlbumFlattensVolumes(t *testing.T) {
-	client := fakeSourceClient{
+	client := &fakeSourceClient{
 		album: &model.Album{
 			Volumes: [][]model.Track{
 				{{ID: model.FlexibleID("1"), Title: "A"}},
@@ -62,7 +92,7 @@ func TestResolveAlbumFlattensVolumes(t *testing.T) {
 }
 
 func TestResolveLegacyPlaylistExtractsTracks(t *testing.T) {
-	client := fakeSourceClient{
+	client := &fakeSourceClient{
 		legacyPlaylist: &model.Playlist{
 			Tracks: []model.TrackShort{
 				{Track: model.Track{ID: model.FlexibleID("10"), Title: "One"}},
@@ -78,7 +108,7 @@ func TestResolveLegacyPlaylistExtractsTracks(t *testing.T) {
 
 func TestResolveUUIDPlaylistExtractsTracks(t *testing.T) {
 	playlistUUID := uuid.NewString()
-	client := fakeSourceClient{
+	client := &fakeSourceClient{
 		uuidPlaylist: &model.Playlist{
 			Tracks: []model.TrackShort{
 				{Track: model.Track{ID: model.FlexibleID("20"), Title: "Two"}},
@@ -93,7 +123,7 @@ func TestResolveUUIDPlaylistExtractsTracks(t *testing.T) {
 }
 
 func TestResolveChartExtractsTracks(t *testing.T) {
-	client := fakeSourceClient{
+	client := &fakeSourceClient{
 		chart: &model.Playlist{
 			Tracks: []model.TrackShort{
 				{Track: model.Track{ID: model.FlexibleID("30"), Title: "Chart hit"}},
@@ -125,18 +155,18 @@ func TestResolvePlaylistPropagatesLoadError(t *testing.T) {
 	tracks, err := resolvePlaylist(func() (*model.Playlist, error) {
 		return nil, wantErr
 	})
-	assert.Nil(t, tracks)
+	assert.Empty(t, tracks)
 	assert.ErrorIs(t, err, wantErr)
 }
 
 func TestResolveRejectsInvalidURL(t *testing.T) {
-	_, err := Resolve(fakeSourceClient{}, "not-a-url")
+	_, err := Resolve(&fakeSourceClient{}, "not-a-url")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid URL")
 }
 
 func TestResolveReturnsEmptyAlbumWithoutError(t *testing.T) {
-	client := fakeSourceClient{album: &model.Album{}}
+	client := &fakeSourceClient{album: &model.Album{}}
 
 	tracks, err := Resolve(client, "https://music.yandex.ru/album/123")
 	require.NoError(t, err)
@@ -144,7 +174,7 @@ func TestResolveReturnsEmptyAlbumWithoutError(t *testing.T) {
 }
 
 func TestResolveReturnsEmptyPlaylistWithoutError(t *testing.T) {
-	client := fakeSourceClient{legacyPlaylist: &model.Playlist{}}
+	client := &fakeSourceClient{legacyPlaylist: &model.Playlist{}}
 
 	tracks, err := Resolve(client, "https://music.yandex.ru/users/user/playlists/99")
 	require.NoError(t, err)
@@ -152,9 +182,125 @@ func TestResolveReturnsEmptyPlaylistWithoutError(t *testing.T) {
 }
 
 func TestResolvePropagatesClientErrors(t *testing.T) {
-	client := fakeSourceClient{albumErr: errors.New("access denied")}
+	client := &fakeSourceClient{albumErr: errors.New("access denied")}
 
 	_, err := Resolve(client, "https://music.yandex.ru/album/123")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "access denied")
+}
+
+func TestResolveArtistFlattensAlbums(t *testing.T) {
+	client := &fakeSourceClient{
+		directAlbums: []model.Album{
+			{ID: model.FlexibleID("1"), Title: "Arrival", Year: 1976},
+			{ID: model.FlexibleID("2"), Title: "SOS", Year: 1975},
+		},
+		albumsByID: map[string]*model.Album{
+			"1": {
+				ID:    model.FlexibleID("1"),
+				Title: "Arrival",
+				Year:  1976,
+				Volumes: [][]model.Track{
+					{{ID: model.FlexibleID("10"), Title: "Dancing Queen"}},
+				},
+			},
+			"2": {
+				ID:    model.FlexibleID("2"),
+				Title: "SOS",
+				Volumes: [][]model.Track{
+					{{ID: model.FlexibleID("20"), Title: "SOS", Albums: []model.Album{{ID: model.FlexibleID("2"), Title: "SOS"}}}},
+				},
+			},
+		},
+	}
+
+	tracks, err := Resolve(client, "https://music.yandex.ru/artist/170660")
+	require.NoError(t, err)
+	require.Len(t, tracks, 2)
+	assert.Equal(t, "10", tracks[0].ID.String())
+	assert.Equal(t, 1976, tracks[0].Albums[0].Year)
+	assert.Equal(t, "Arrival", tracks[0].Albums[0].Title)
+	assert.Equal(t, "20", tracks[1].ID.String())
+	assert.Equal(t, 1975, tracks[1].Albums[0].Year)
+}
+
+func TestResolveArtistReturnsEmptyDiscographyWithoutError(t *testing.T) {
+	client := &fakeSourceClient{
+		directAlbums: []model.Album{},
+	}
+
+	tracks, err := Resolve(client, "https://music.yandex.ru/artist/170660")
+	require.NoError(t, err)
+	assert.Empty(t, tracks)
+}
+
+func TestResolveArtistPropagatesAlbumLoadError(t *testing.T) {
+	client := &fakeSourceClient{
+		directAlbums: []model.Album{{ID: model.FlexibleID("1")}},
+		albumsByID:   map[string]*model.Album{},
+	}
+
+	_, err := Resolve(client, "https://music.yandex.ru/artist/170660")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "album not found")
+}
+
+func TestResolveArtistRetriesRetryableAlbumError(t *testing.T) {
+	prev := albumFetchRetryBackoff
+	albumFetchRetryBackoff = func(int) time.Duration { return 0 }
+	t.Cleanup(func() { albumFetchRetryBackoff = prev })
+
+	client := &fakeSourceClient{
+		directAlbums: []model.Album{{ID: model.FlexibleID("1"), Title: "Arrival", Year: 1976}},
+		albumsByID: map[string]*model.Album{
+			"1": {
+				ID:      model.FlexibleID("1"),
+				Title:   "Arrival",
+				Year:    1976,
+				Volumes: [][]model.Track{{{ID: model.FlexibleID("10"), Title: "Dancing Queen"}}},
+			},
+		},
+		albumCallErrs: map[string][]error{
+			"1": {&utils.HTTPStatusError{StatusCode: 429, Body: "Captcha required"}},
+		},
+	}
+
+	tracks, err := Resolve(client, "https://music.yandex.ru/artist/170660")
+	require.NoError(t, err)
+	require.Len(t, tracks, 1)
+	assert.Equal(t, "10", tracks[0].ID.String())
+}
+
+func TestResolveArtistSkipsAlbumThatKeepsFailing(t *testing.T) {
+	prev := albumFetchRetryBackoff
+	albumFetchRetryBackoff = func(int) time.Duration { return 0 }
+	t.Cleanup(func() { albumFetchRetryBackoff = prev })
+
+	client := &fakeSourceClient{
+		directAlbums: []model.Album{
+			{ID: model.FlexibleID("1"), Title: "Arrival", Year: 1976},
+			{ID: model.FlexibleID("2"), Title: "SOS", Year: 1975},
+		},
+		albumsByID: map[string]*model.Album{
+			"2": {
+				ID:      model.FlexibleID("2"),
+				Title:   "SOS",
+				Year:    1975,
+				Volumes: [][]model.Track{{{ID: model.FlexibleID("20"), Title: "SOS"}}},
+			},
+		},
+		albumCallErrs: map[string][]error{
+			"1": {
+				&utils.HTTPStatusError{StatusCode: 429, Body: "Captcha required"},
+				&utils.HTTPStatusError{StatusCode: 429, Body: "Captcha required"},
+				&utils.HTTPStatusError{StatusCode: 429, Body: "Captcha required"},
+				&utils.HTTPStatusError{StatusCode: 429, Body: "Captcha required"},
+			},
+		},
+	}
+
+	tracks, err := Resolve(client, "https://music.yandex.ru/artist/170660")
+	require.NoError(t, err)
+	require.Len(t, tracks, 1)
+	assert.Equal(t, "20", tracks[0].ID.String())
 }

@@ -192,6 +192,15 @@ func (c *HttpClient) sendRequestWithHeaders(reqCtx RequestLogContext, method, ur
 		return nil, &errorResp
 	}
 
+	if resp.StatusCode >= http.StatusBadRequest {
+		httpErr := newHTTPStatusError(resp.StatusCode, body)
+		c.logRequest(slog.LevelError, reqCtx, "http request finished with bad status", method, url,
+			"status_code", resp.StatusCode,
+			"error", httpErr,
+		)
+		return nil, httpErr
+	}
+
 	return body, nil
 }
 
@@ -454,7 +463,7 @@ func responsePreview(contentType string, body []byte) string {
 	}
 
 	contentType = strings.ToLower(contentType)
-	if !strings.Contains(contentType, "json") && !strings.Contains(contentType, "xml") && !strings.Contains(contentType, "text") {
+	if !strings.Contains(contentType, "json") && !strings.Contains(contentType, "xml") && !strings.Contains(contentType, "text") && !isMostlyPrintable(body) {
 		return ""
 	}
 
@@ -465,4 +474,17 @@ func responsePreview(contentType string, body []byte) string {
 	}
 
 	return preview[:maxPreviewBytes] + "...(truncated)"
+}
+
+func isMostlyPrintable(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	printable := 0
+	for _, b := range body {
+		if b == '\n' || b == '\r' || b == '\t' || (b >= 32 && b < 127) {
+			printable++
+		}
+	}
+	return printable*4 >= len(body)*3
 }

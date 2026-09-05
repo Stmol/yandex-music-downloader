@@ -793,3 +793,38 @@ func minimalFLACBytes() []byte {
 	data = append(data, 0xff, 0xf8, 0x00, 0x00)
 	return data
 }
+
+func TestArtistDirectAlbumsPaginatesUntilTotal(t *testing.T) {
+	var pages []string
+	client := newAPIClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/artists/170660/direct-albums", r.URL.Path)
+		assert.Equal(t, "year", r.URL.Query().Get("sort-by"))
+		assert.Equal(t, "50", r.URL.Query().Get("page-size"))
+		page := r.URL.Query().Get("page")
+		pages = append(pages, page)
+		switch page {
+		case "0":
+			_, _ = w.Write([]byte(`{"result":{"albums":[{"id":1,"title":"A","year":1976}],"pager":{"total":2,"page":0,"perPage":1}}}`))
+		case "1":
+			_, _ = w.Write([]byte(`{"result":{"albums":[{"id":2,"title":"B","year":1975}],"pager":{"total":2,"page":1,"perPage":1}}}`))
+		default:
+			t.Errorf("unexpected page %s", page)
+		}
+	}))
+
+	albums, err := client.ArtistDirectAlbums("170660")
+	require.NoError(t, err)
+	require.Len(t, albums, 2)
+	assert.Equal(t, []string{"0", "1"}, pages)
+	assert.Equal(t, "A", albums[0].Title)
+	assert.Equal(t, "B", albums[1].Title)
+}
+
+func newAPIClient(t *testing.T, handler http.Handler) *Client {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	httpClient := utils.NewHttpClient()
+	httpClient.SetTransport(&hostRewriteTransport{targetHost: server.Listener.Addr().String()})
+	return NewClient(httpClient)
+}

@@ -123,6 +123,24 @@ func TestGetRecognizesResultWrappedAPIErrorPayload(t *testing.T) {
 	assert.ErrorContains(t, err, "not-allowed")
 }
 
+func TestGetReturnsHTTPStatusErrorForNonJSONRateLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("Captcha required"))
+	}))
+	defer server.Close()
+
+	client := NewHttpClient()
+	body, err := client.Get(server.URL)
+
+	assert.Empty(t, body)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "HTTP 429")
+	assert.ErrorContains(t, err, "Captcha required")
+	assert.True(t, IsRetryableHTTPError(err))
+}
+
 func TestGetWithContextLogsRequestAndRedactsAuthorization(t *testing.T) {
 	var logs bytes.Buffer
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

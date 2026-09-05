@@ -436,6 +436,10 @@ func (*blockingPreflightClient) AlbumWithTracks(string) (*model.Album, error) {
 	panic("AlbumWithTracks must not be called after account cancellation")
 }
 
+func (*blockingPreflightClient) ArtistDirectAlbums(string) ([]model.Album, error) {
+	panic("ArtistDirectAlbums must not be called after account cancellation")
+}
+
 func (*blockingPreflightClient) UsersPlaylist(string, string) (*model.Playlist, error) {
 	panic("UsersPlaylist must not be called after account cancellation")
 }
@@ -467,6 +471,10 @@ func (c *blockingSourcePreflightClient) TrackInfo(string) (*model.Track, error) 
 
 func (*blockingSourcePreflightClient) AlbumWithTracks(string) (*model.Album, error) {
 	panic("AlbumWithTracks must not be called for a track URL")
+}
+
+func (*blockingSourcePreflightClient) ArtistDirectAlbums(string) ([]model.Album, error) {
+	panic("ArtistDirectAlbums must not be called for a track URL")
 }
 
 func (*blockingSourcePreflightClient) UsersPlaylist(string, string) (*model.Playlist, error) {

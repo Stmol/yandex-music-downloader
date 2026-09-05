@@ -72,7 +72,7 @@ func parseDownloadOptions(args []string, stderr io.Writer) parseOutcome[download
 	flags := flag.NewFlagSet("yamdl download", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.token, "token", "", "Yandex Music authentication token (required)")
-	flags.StringVar(&options.link, "link", "", "Yandex Music track, album, playlist, or chart URL (required)")
+	flags.StringVar(&options.link, "link", "", "Yandex Music track, album, artist, playlist, or chart URL (required)")
 	format := string(options.format)
 	flags.StringVar(&format, "format", format, "audio format: mp3 or flac")
 	flags.StringVar(&options.output, "output", options.output, "directory for downloaded tracks")

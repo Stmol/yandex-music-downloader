@@ -130,11 +130,12 @@ func (m SourceModel) View() tea.View {
 func (m SourceModel) render() string {
 	s := renderScreenHeader("SOURCE", "Paste a Yandex Music link") + "\n\n"
 	s += sectionLabelStyle.Render("SUPPORTED SOURCES") + "\n"
-	s += dimGrayForeground.Render("Track  ·  Album  ·  Playlist  ·  Chart") + "\n\n"
+	s += dimGrayForeground.Render("Track  ·  Album  ·  Artist  ·  Playlist  ·  Chart") + "\n\n"
 	s += sectionLabelStyle.Render("URL EXAMPLES") + "\n"
 	s += dimGrayForeground.Render(strings.Join([]string{
 		"· Track: https://music.yandex.ru/album/1231231/track/12312345",
 		"· Album: https://music.yandex.ru/album/1231231",
+		"· Artist: https://music.yandex.ru/artist/170660",
 		"· Playlist: https://music.yandex.ru/playlists/4dc94b2f-e96b-2daf-a53c-ce71846901b3",
 		"· Legacy playlist: https://music.yandex.ru/users/username/playlists/12312311",
 		"· Chart: https://music.yandex.ru/chart (or /chart/world)",

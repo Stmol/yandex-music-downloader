@@ -9,6 +9,7 @@ type Album struct {
 	Genre         string        `json:"genre,omitempty"`
 	Year          int           `json:"year,omitempty"`
 	ReleaseDate   string        `json:"releaseDate,omitempty"`
+	Artists       []Artist      `json:"artists,omitempty"`
 	TrackPosition TrackPosition `json:"trackPosition,omitempty"`
 	Volumes       [][]Track     `json:"volumes,omitempty"`
 }

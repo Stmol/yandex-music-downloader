@@ -21,6 +21,7 @@ func TestTrackDecodesTypedAlbums(t *testing.T) {
 			"genre": "rock",
 			"year": 2024,
 			"releaseDate": "2024-01-02",
+			"artists": [{"id": 170660, "name": "ABBA"}],
 			"trackPosition": {"volume": 1, "index": 7}
 		}]
 	}`), &track)
@@ -29,6 +30,9 @@ func TestTrackDecodesTypedAlbums(t *testing.T) {
 	require.Len(t, track.Albums, 1)
 	assert.Equal(t, "456", track.Albums[0].ID.String())
 	assert.Equal(t, "Album", track.Albums[0].Title)
+	require.Len(t, track.Albums[0].Artists, 1)
+	assert.Equal(t, "170660", track.Albums[0].Artists[0].ID.String())
+	assert.Equal(t, "ABBA", track.Albums[0].Artists[0].Name)
 	assert.Equal(t, "avatars.yandex.net/get-music-content/cover/%%", track.Albums[0].CoverURI)
 	assert.Equal(t, "rock", track.Albums[0].Genre)
 	assert.Equal(t, 2024, track.Albums[0].Year)

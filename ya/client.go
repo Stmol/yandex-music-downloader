@@ -61,6 +61,7 @@ type trackDownloadFunc func(track model.Track, outputDir string, options Downloa
 type YaClient interface {
 	TrackInfo(id string) (*model.Track, error)
 	AlbumWithTracks(id string) (*model.Album, error)
+	ArtistDirectAlbums(id string) ([]model.Album, error)
 	UsersPlaylist(id string, username string) (*model.Playlist, error)
 	PlaylistByUUID(id string) (*model.Playlist, error)
 	Chart(region string) (*model.Playlist, error)
@@ -187,6 +188,45 @@ func (c *Client) AlbumWithTracks(id string) (*model.Album, error) {
 
 		return &data.Result, nil
 	}
+}
+
+const artistAlbumsPageSize = 50
+
+func (c *Client) ArtistDirectAlbums(id string) ([]model.Album, error) {
+	var all []model.Album
+	for page := 0; page < 1000; page++ {
+		endpoint := fmt.Sprintf("%s/artists/%s/direct-albums?page=%d&page-size=%d&sort-by=year",
+			baseURL, id, page, artistAlbumsPageSize)
+
+		res, err := c.httpClient.Get(endpoint)
+		if err != nil {
+			return nil, err
+		}
+
+		var data model.ArtistAlbumsResponse
+		if err := parseResponse(res, &data); err != nil {
+			return nil, err
+		}
+
+		pageAlbums := data.Result.Albums
+		if len(pageAlbums) == 0 {
+			break
+		}
+		all = append(all, pageAlbums...)
+
+		total := data.Result.Pager.Total
+		if total > 0 && len(all) >= total {
+			break
+		}
+		perPage := data.Result.Pager.PerPage
+		if perPage == 0 {
+			perPage = artistAlbumsPageSize
+		}
+		if len(pageAlbums) < perPage {
+			break
+		}
+	}
+	return all, nil
 }
 
 func (c *Client) UsersPlaylist(id string, username string) (*model.Playlist, error) {

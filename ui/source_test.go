@@ -59,3 +59,14 @@ func TestSourceRenderIncludesURLExamples(t *testing.T) {
 		assert.Contains(t, rendered, example)
 	}
 }
+
+func TestSourceHandleEnterKeyAcceptsValidArtistURL(t *testing.T) {
+	m := NewSourceModel(nil)
+	m.urlInput.SetValue("https://music.yandex.ru/artist/170660")
+
+	updated, cmd := m.handleEnterKey()
+
+	assert.Empty(t, updated.errorMsg)
+	assert.True(t, updated.isProcessing)
+	assert.NotNil(t, cmd)
+}
