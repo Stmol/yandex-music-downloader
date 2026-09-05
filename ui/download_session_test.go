@@ -17,7 +17,8 @@ import (
 )
 
 type recordingDownloadClient struct {
-	dir string
+	dir     string
+	options ya.DownloadOptions
 }
 
 type fakeDownloadClient struct {
@@ -36,9 +37,10 @@ func (f *fakeDownloadClient) DownloadTrackWithOptions(
 func (c *recordingDownloadClient) DownloadTrackWithOptions(
 	_ model.Track,
 	outputDir string,
-	_ ya.DownloadOptions,
+	options ya.DownloadOptions,
 ) (string, error) {
 	c.dir = outputDir
+	c.options = options
 	return filepath.Join(outputDir, "Song.mp3"), nil
 }
 
@@ -81,6 +83,39 @@ func TestDownloadSessionUsesLayoutDirectory(t *testing.T) {
 	assert.Equal(t, TrackStatusDownloaded, final.Progress.status)
 	assert.Equal(t, wantDir, client.dir)
 	assert.Equal(t, filepath.Join(wantDir, "Song.mp3"), final.Progress.filename)
+}
+
+func TestDownloadSessionPassesMaskedFilenameBase(t *testing.T) {
+	client := &recordingDownloadClient{}
+	outputDir := t.TempDir()
+	session := NewDownloadSession(
+		client,
+		utils.NewDiscardDownloadLogger(),
+		ya.DownloadOptions{},
+		outputDir,
+		SessionConfig{
+			Layout: config.Layout{TrackFileMask: "{nn} - {title}"},
+		},
+	)
+
+	track := &model.Track{
+		ID:        model.FlexibleID("1"),
+		Title:     "Mamma Mia",
+		Artists:   []model.Artist{{Name: "ABBA"}},
+		Available: true,
+		Albums:    []model.Album{{Title: "Arrival", Year: 1975, TrackPosition: model.TrackPosition{Index: 1}}},
+	}
+	for event := range session.Run([]TrackProgress{{
+		uid:    "track-1",
+		track:  track,
+		status: TrackStatusReady,
+	}}) {
+		if event.Completed {
+			break
+		}
+	}
+
+	assert.Equal(t, "01 - Mamma Mia", client.options.FilenameBase)
 }
 
 func TestDownloadSessionEmitsSnapshotsWithoutMutatingInput(t *testing.T) {

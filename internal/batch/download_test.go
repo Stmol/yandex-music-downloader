@@ -218,6 +218,47 @@ func TestRunSuffixesFilenameCollisionsOnlyInsideTheSameDirectory(t *testing.T) {
 	assert.Empty(t, downloads["2"].options.FilenameSuffix)
 }
 
+func TestRunPassesMaskedFilenameBaseAndSuffixesMaskCollisions(t *testing.T) {
+	client := &recordingClient{}
+	events := collect(Run(Config{
+		Client: client,
+		Layout: config.Layout{TrackFileMask: "{nn} - {title}"},
+		Tracks: []model.Track{
+			{
+				ID:        "1",
+				Title:     "Same/Title",
+				Artists:   []model.Artist{{Name: "Artist"}},
+				Available: true,
+				Albums:    []model.Album{{TrackPosition: model.TrackPosition{Index: 1}}},
+			},
+			{
+				ID:        "2",
+				Title:     "Same:Title",
+				Artists:   []model.Artist{{Name: "Other"}},
+				Available: true,
+				Albums:    []model.Album{{TrackPosition: model.TrackPosition{Index: 1}}},
+			},
+			{
+				ID:        "3",
+				Title:     "Other Title",
+				Artists:   []model.Artist{{Name: "Artist"}},
+				Available: true,
+				Albums:    []model.Album{{TrackPosition: model.TrackPosition{Index: 2}}},
+			},
+		},
+		Concurrency: 1,
+	}))
+
+	require.Len(t, events, 6)
+	downloads := client.downloadsByID()
+	assert.Equal(t, "01 - Same_Title", downloads["1"].options.FilenameBase)
+	assert.Equal(t, "01 - Same_Title", downloads["2"].options.FilenameBase)
+	assert.Equal(t, "02 - Other Title", downloads["3"].options.FilenameBase)
+	assert.Equal(t, "[1]", downloads["1"].options.FilenameSuffix)
+	assert.Equal(t, "[2]", downloads["2"].options.FilenameSuffix)
+	assert.Empty(t, downloads["3"].options.FilenameSuffix)
+}
+
 type blockingClient struct {
 	started chan string
 	release chan struct{}

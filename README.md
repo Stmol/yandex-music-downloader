@@ -96,21 +96,23 @@ layout:
   by_artist: true
   by_album: true
   album_dir_mask: "{year} - {title}"
+  track_file_mask: "{nn} - {title}"
 ```
 
 - `by_artist` puts files into a folder named after the artist. For an artist page, that is the page artist even on featured tracks.
 - `by_album` puts each album or single into its own folder. Albums and singles stay on the same level; there are no extra `Albums/` or `Singles/` parents.
 - `album_dir_mask` names the release folder. Placeholders are `{year}` and `{title}`. A missing year is omitted, so `{year} - {title}` becomes `Arrival`.
+- `track_file_mask` names the audio file (without extension). Placeholders are `{n}` (track number), `{nn}` (zero-padded track number), `{year}`, `{album}`, `{title}` (track title), and `{artist}`. Missing values are omitted, so `{nn} - {title}` without a track number becomes `Mamma Mia`. The default is `{artist} - {title}`.
 
-Example with both flags enabled:
+Example with both flags and `{nn} - {title}`:
 
 ```text
 downloads/
   ABBA/
     1975 - ABBA/
-      ABBA - Mamma Mia.m4a
+      01 - Mamma Mia.m4a
     1976 - Arrival/
-      ABBA - Dancing Queen.m4a
+      01 - Dancing Queen.m4a
 ```
 
 Artist page URLs such as `https://music.yandex.ru/artist/170660` download that artist's own albums and singles (not compilation appearances). The same layout applies to tracks, albums, playlists, and charts.
