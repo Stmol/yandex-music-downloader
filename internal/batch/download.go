@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 
+	"ya-music/internal/config"
+	"ya-music/internal/layout"
+	"ya-music/utils"
 	"ya-music/ya"
 	"ya-music/ya/model"
 )
@@ -50,12 +53,14 @@ type trackDownloader interface {
 }
 
 type Config struct {
-	Client      trackDownloader
-	Tracks      []model.Track
-	OutputDir   string
-	Options     ya.DownloadOptions
-	Concurrency int
-	Context     context.Context
+	Client       trackDownloader
+	Tracks       []model.Track
+	OutputDir    string
+	Options      ya.DownloadOptions
+	Concurrency  int
+	Context      context.Context
+	Layout       config.Layout
+	FolderArtist string
 }
 
 // Run downloads all eligible tracks and reports immutable lifecycle events.
@@ -74,7 +79,8 @@ func Run(config Config) <-chan Event {
 		defer close(events)
 
 		seenIDs := make(map[string]struct{}, len(config.Tracks))
-		suffixes := filenameSuffixes(config.Tracks)
+		dirs := trackOutputDirs(config)
+		suffixes := filenameSuffixes(config.Tracks, dirs)
 		sem := make(chan struct{}, concurrency)
 		var workers sync.WaitGroup
 
@@ -114,9 +120,10 @@ func Run(config Config) <-chan Event {
 
 			options := config.Options
 			options.FilenameSuffix = suffixes[position]
+			dir := dirs[position]
 
 			workers.Add(1)
-			go func(event Event, options ya.DownloadOptions) {
+			go func(event Event, options ya.DownloadOptions, dir string) {
 				defer workers.Done()
 				defer func() { <-sem }()
 				defer func() {
@@ -134,7 +141,14 @@ func Run(config Config) <-chan Event {
 				event.Status = StatusDownloading
 				events <- event
 
-				filename, err := config.Client.DownloadTrackWithOptions(event.Track, config.OutputDir, options)
+				if err := utils.CreateDirIfNotExists(dir); err != nil {
+					event.Status = StatusError
+					event.Reason = err.Error()
+					events <- event
+					return
+				}
+
+				filename, err := config.Client.DownloadTrackWithOptions(event.Track, dir, options)
 				if errors.Is(err, ya.ErrTrackAlreadyExists) {
 					event.Status = StatusSkipped
 					event.Reason = SkipAlreadyExists
@@ -147,7 +161,7 @@ func Run(config Config) <-chan Event {
 					event.Format = formatFromFilename(filename)
 				}
 				events <- event
-			}(event, options)
+			}(event, options, dir)
 		}
 
 		workers.Wait()
@@ -156,10 +170,19 @@ func Run(config Config) <-chan Event {
 	return events
 }
 
-func filenameSuffixes(tracks []model.Track) []string {
+func trackOutputDirs(config Config) []string {
+	dirs := make([]string, len(config.Tracks))
+	opts := layout.Options{Layout: config.Layout, FolderArtist: config.FolderArtist}
+	for i, track := range config.Tracks {
+		dirs[i] = layout.TrackOutputDir(config.OutputDir, track, opts)
+	}
+	return dirs
+}
+
+func filenameSuffixes(tracks []model.Track, dirs []string) []string {
 	idsByFilenameKey := make(map[string]map[string]struct{}, len(tracks))
-	for _, track := range tracks {
-		key := ya.TrackFilenameKey(track)
+	for i, track := range tracks {
+		key := collisionKey(dirs[i], track)
 		if idsByFilenameKey[key] == nil {
 			idsByFilenameKey[key] = make(map[string]struct{})
 		}
@@ -168,12 +191,16 @@ func filenameSuffixes(tracks []model.Track) []string {
 
 	suffixes := make([]string, len(tracks))
 	for position, track := range tracks {
-		if len(idsByFilenameKey[ya.TrackFilenameKey(track)]) > 1 {
+		if len(idsByFilenameKey[collisionKey(dirs[position], track)]) > 1 {
 			suffixes[position] = fmt.Sprintf("[%s]", track.ID.String())
 		}
 	}
 
 	return suffixes
+}
+
+func collisionKey(dir string, track model.Track) string {
+	return dir + "\x00" + ya.TrackFilenameKey(track)
 }
 
 func formatFromFilename(filename string) Container {

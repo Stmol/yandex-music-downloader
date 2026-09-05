@@ -24,6 +24,11 @@ func TestCreateDirIfNotExists(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestCreateDirIfNotExistsIgnoresEmptyPath(t *testing.T) {
+	assert.NoError(t, CreateDirIfNotExists(""))
+	assert.NoError(t, CreateDirIfNotExists("   "))
+}
+
 func TestSanitizeFilename(t *testing.T) {
 	tests := []struct {
 		input    string

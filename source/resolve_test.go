@@ -21,6 +21,8 @@ type fakeSourceClient struct {
 	album             *model.Album
 	albumErr          error
 	albumsByID        map[string]*model.Album
+	artist            *model.Artist
+	artistErr         error
 	directAlbums      []model.Album
 	directAlbumsErr   error
 	legacyPlaylist    *model.Playlist
@@ -58,6 +60,10 @@ func (f *fakeSourceClient) AlbumWithTracks(id string) (*model.Album, error) {
 	return f.album, f.albumErr
 }
 
+func (f *fakeSourceClient) ArtistInfo(string) (*model.Artist, error) {
+	return f.artist, f.artistErr
+}
+
 func (f *fakeSourceClient) ArtistDirectAlbums(string) ([]model.Album, error) {
 	return f.directAlbums, f.directAlbumsErr
 }
@@ -77,6 +83,8 @@ func (f *fakeSourceClient) Chart(string) (*model.Playlist, error) {
 func TestResolveAlbumFlattensVolumes(t *testing.T) {
 	client := &fakeSourceClient{
 		album: &model.Album{
+			Title: "Album",
+			Year:  1975,
 			Volumes: [][]model.Track{
 				{{ID: model.FlexibleID("1"), Title: "A"}},
 				{{ID: model.FlexibleID("2"), Title: "B"}},
@@ -89,6 +97,9 @@ func TestResolveAlbumFlattensVolumes(t *testing.T) {
 	require.Len(t, result.Tracks, 2)
 	assert.Equal(t, "1", result.Tracks[0].ID.String())
 	assert.Equal(t, "2", result.Tracks[1].ID.String())
+	assert.Equal(t, "Album", result.Tracks[0].Albums[0].Title)
+	assert.Equal(t, 1975, result.Tracks[0].Albums[0].Year)
+	assert.Empty(t, result.FolderArtist)
 }
 
 func TestResolveLegacyPlaylistExtractsTracks(t *testing.T) {
@@ -138,7 +149,7 @@ func TestResolveChartExtractsTracks(t *testing.T) {
 }
 
 func TestResolvePlaylistLoadsTracks(t *testing.T) {
-	tracks, err := resolvePlaylist(func() (*model.Playlist, error) {
+	result, err := resolvePlaylist(func() (*model.Playlist, error) {
 		return &model.Playlist{
 			Tracks: []model.TrackShort{
 				{Track: model.Track{ID: model.FlexibleID("40"), Title: "Loaded"}},
@@ -146,16 +157,16 @@ func TestResolvePlaylistLoadsTracks(t *testing.T) {
 		}, nil
 	})
 	require.NoError(t, err)
-	require.Len(t, tracks, 1)
-	assert.Equal(t, "40", tracks[0].ID.String())
+	require.Len(t, result.Tracks, 1)
+	assert.Equal(t, "40", result.Tracks[0].ID.String())
 }
 
 func TestResolvePlaylistPropagatesLoadError(t *testing.T) {
 	wantErr := errors.New("load failed")
-	tracks, err := resolvePlaylist(func() (*model.Playlist, error) {
+	result, err := resolvePlaylist(func() (*model.Playlist, error) {
 		return nil, wantErr
 	})
-	assert.Empty(t, tracks)
+	assert.Empty(t, result.Tracks)
 	assert.ErrorIs(t, err, wantErr)
 }
 
@@ -189,8 +200,9 @@ func TestResolvePropagatesClientErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "access denied")
 }
 
-func TestResolveArtistFlattensAlbums(t *testing.T) {
+func TestResolveArtistFlattensAlbumsAndSetsFolderArtist(t *testing.T) {
 	client := &fakeSourceClient{
+		artist: &model.Artist{ID: model.FlexibleID("170660"), Name: "ABBA"},
 		directAlbums: []model.Album{
 			{ID: model.FlexibleID("1"), Title: "Arrival", Year: 1976},
 			{ID: model.FlexibleID("2"), Title: "SOS", Year: 1975},
@@ -216,6 +228,7 @@ func TestResolveArtistFlattensAlbums(t *testing.T) {
 
 	result, err := Resolve(client, "https://music.yandex.ru/artist/170660")
 	require.NoError(t, err)
+	assert.Equal(t, "ABBA", result.FolderArtist)
 	require.Len(t, result.Tracks, 2)
 	assert.Equal(t, "10", result.Tracks[0].ID.String())
 	assert.Equal(t, 1976, result.Tracks[0].Albums[0].Year)
@@ -226,16 +239,19 @@ func TestResolveArtistFlattensAlbums(t *testing.T) {
 
 func TestResolveArtistReturnsEmptyDiscographyWithoutError(t *testing.T) {
 	client := &fakeSourceClient{
+		artist:       &model.Artist{Name: "ABBA"},
 		directAlbums: []model.Album{},
 	}
 
 	result, err := Resolve(client, "https://music.yandex.ru/artist/170660")
 	require.NoError(t, err)
+	assert.Equal(t, "ABBA", result.FolderArtist)
 	assert.Empty(t, result.Tracks)
 }
 
 func TestResolveArtistPropagatesAlbumLoadError(t *testing.T) {
 	client := &fakeSourceClient{
+		artist:       &model.Artist{Name: "ABBA"},
 		directAlbums: []model.Album{{ID: model.FlexibleID("1")}},
 		albumsByID:   map[string]*model.Album{},
 	}
@@ -251,6 +267,7 @@ func TestResolveArtistRetriesRetryableAlbumError(t *testing.T) {
 	t.Cleanup(func() { albumFetchRetryBackoff = prev })
 
 	client := &fakeSourceClient{
+		artist:       &model.Artist{Name: "ABBA"},
 		directAlbums: []model.Album{{ID: model.FlexibleID("1"), Title: "Arrival", Year: 1976}},
 		albumsByID: map[string]*model.Album{
 			"1": {
@@ -277,6 +294,7 @@ func TestResolveArtistSkipsAlbumThatKeepsFailing(t *testing.T) {
 	t.Cleanup(func() { albumFetchRetryBackoff = prev })
 
 	client := &fakeSourceClient{
+		artist: &model.Artist{Name: "ABBA"},
 		directAlbums: []model.Album{
 			{ID: model.FlexibleID("1"), Title: "Arrival", Year: 1976},
 			{ID: model.FlexibleID("2"), Title: "SOS", Year: 1975},
@@ -314,4 +332,12 @@ func TestSkippedAlbumLabelQuotesTitleOrFallsBackToID(t *testing.T) {
 	assert.Equal(t, `"Bad\x1b[2J"`, SkippedAlbum{ID: "2", Title: "Bad\x1b[2J"}.Label())
 	assert.Equal(t, "#3", SkippedAlbum{ID: "3", Title: "  "}.Label())
 	assert.Equal(t, `#2\x1b[2J`, SkippedAlbum{ID: "2\x1b[2J"}.Label())
+}
+
+func TestResolveArtistPropagatesArtistInfoError(t *testing.T) {
+	client := &fakeSourceClient{artistErr: errors.New("artist missing")}
+
+	_, err := Resolve(client, "https://music.yandex.ru/artist/170660")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "artist missing")
 }

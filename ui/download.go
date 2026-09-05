@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"ya-music/internal/config"
 	"ya-music/source"
 	"ya-music/utils"
 	"ya-music/ya"
@@ -160,6 +161,8 @@ type DownloadModel struct {
 	// External dependencies.
 	client          *ya.Client
 	downloadOptions ya.DownloadOptions
+	layout          config.Layout
+	folderArtist    string
 
 	// Error message.
 	errorMsg string
@@ -196,6 +199,10 @@ type DownloadModel struct {
 }
 
 func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) DownloadModel {
+	return NewDownloadModelWithLayout(client, downloadOptionsOrDefault(options), config.Layout{})
+}
+
+func NewDownloadModelWithLayout(client *ya.Client, options ya.DownloadOptions, layout config.Layout) DownloadModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = spinnerStyle
@@ -226,7 +233,8 @@ func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) Download
 
 	return DownloadModel{
 		client:            client,
-		downloadOptions:   downloadOptionsOrDefault(options),
+		downloadOptions:   options,
+		layout:            layout,
 		spinner:           sp,
 		progress:          p,
 		trackList:         l,
@@ -267,6 +275,7 @@ func (m DownloadModel) Init() tea.Cmd {
 func (m *DownloadModel) Reset() {
 	m.tracksProgress = nil
 	m.sessionEvents = nil
+	m.folderArtist = ""
 	m.tracksTotalCount = 0
 	m.downloadedCount = 0
 	m.downloadableCount = 0
@@ -614,9 +623,14 @@ func (m DownloadModel) startDownloadSession() tea.Cmd {
 	logger := downloadLogger(client)
 	options := m.downloadOptions
 	targetDir := utils.ResolveOutputDir()
+	layoutCfg := m.layout
+	folderArtist := m.folderArtist
 
 	return func() tea.Msg {
-		session := NewDownloadSession(client, logger, options, targetDir)
+		session := NewDownloadSession(client, logger, options, targetDir, SessionConfig{
+			Layout:       layoutCfg,
+			FolderArtist: folderArtist,
+		})
 		return downloadSessionStartedMsg{events: session.Run(progress)}
 	}
 }

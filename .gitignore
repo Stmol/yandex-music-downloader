@@ -2,6 +2,7 @@
 downloads/
 build/
 token.txt
+yamdl.yaml
 debug.log
 dl_logs.txt
 
