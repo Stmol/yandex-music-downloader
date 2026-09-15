@@ -170,8 +170,8 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 ### 7. Completion
 
 -   The progress bar fills completely upon download completion
--   Downloaded tracks are available in the `./downloads` directory
--   A track is marked as completed after the audio file is saved. For MP3 and FLAC of that format, tagging must succeed before the file appears in `./downloads`; in lossless mode a FLAC tagging failure still falls back to MP3. For M4A, metadata is best-effort and tagging failures do not block delivery. Cover download failures are ignored so they do not block the track
+-   Downloaded tracks are available in the `./downloads` directory (or the directory specified by `YAMDL_DOWNLOAD_DIR` environment variable)
+-   A track is marked as completed after the audio file is saved. For MP3 and FLAC of that format, tagging must succeed before the file appears in the destination directory; in lossless mode a FLAC tagging failure still falls back to MP3. For M4A, metadata is best-effort and tagging failures do not block delivery. Cover download failures are ignored so they do not block the track
 
 ![download complete](assets/img_download_complete.png)
 
