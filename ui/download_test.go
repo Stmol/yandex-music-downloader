@@ -932,3 +932,19 @@ func TestDownloadEndQuitsAfterShutdownRequest(t *testing.T) {
 		assert.IsType(t, tea.QuitMsg{}, cmd())
 	}
 }
+
+func TestResolveOutputDir(t *testing.T) {
+	t.Run("default fallback", func(t *testing.T) {
+		t.Setenv("YAMDL_DOWNLOAD_DIR", "")
+		if got := resolveOutputDir(); got != defaultOutputDir {
+			t.Fatalf("expected %q, got %q", defaultOutputDir, got)
+		}
+	})
+
+	t.Run("from environment variable", func(t *testing.T) {
+		t.Setenv("YAMDL_DOWNLOAD_DIR", "/custom/music/path")
+		if got := resolveOutputDir(); got != "/custom/music/path" {
+			t.Fatalf("expected %q, got %q", "/custom/music/path", got)
+		}
+	})
+}

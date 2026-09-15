@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -22,12 +23,20 @@ import (
 
 // Global constants.
 const (
-	outputDir                = "./downloads" // Root directory for downloads.
-	maxConcurrentDownloads   = 3             // Maximum number of concurrent downloads.
+	defaultOutputDir         = "./downloads" // Root directory for downloads.
+	outputDir                = defaultOutputDir
+	maxConcurrentDownloads   = 3 // Maximum number of concurrent downloads.
 	defaultTrackListHeight   = 18
 	minTrackListHeight       = 6
 	downloadHorizontalChrome = 5
 )
+
+func resolveOutputDir() string {
+	if dir := strings.TrimSpace(os.Getenv("YAMDL_DOWNLOAD_DIR")); dir != "" {
+		return dir
+	}
+	return defaultOutputDir
+}
 
 // Global style variables.
 var (
@@ -563,9 +572,10 @@ func (m DownloadModel) startDownloadSession() tea.Cmd {
 	client := m.client
 	logger := downloadLogger(client)
 	options := m.downloadOptions
+	targetDir := resolveOutputDir()
 
 	return func() tea.Msg {
-		session := NewDownloadSession(client, logger, options, outputDir)
+		session := NewDownloadSession(client, logger, options, targetDir)
 		return downloadSessionStartedMsg{events: session.Run(progress)}
 	}
 }
@@ -705,7 +715,7 @@ func (m *DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 		m.focusedView = viewList
 		m.resizeToWindow()
 
-		utils.CreateDirIfNotExists(outputDir)
+		utils.CreateDirIfNotExists(resolveOutputDir())
 		return *m, m.startDownloadSession()
 
 	case viewQuitButton:
