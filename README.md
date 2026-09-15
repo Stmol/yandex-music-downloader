@@ -66,7 +66,7 @@ Available options:
 - `--token <token>` is required. Provide your Yandex Music OAuth token.
 - `--link <url>` is required. Provide a Yandex Music track, album, playlist, or chart URL.
 - `--format <mp3|flac>` selects MP3 or lossless download; MP3 is the default.
-- `--output <directory>` selects the destination directory; `./downloads` is the default.
+- `--output <directory>` selects the destination directory (defaults to `YAMDL_DOWNLOAD_DIR` if set, or `./downloads`). Passing this flag overrides the environment variable.
 - `--timeout <seconds>` limits the download time for each audio file. Use `0`, the default, to disable the limit.
 - `--skip-cover` skips downloading and embedding cover art. Text metadata is still written.
 

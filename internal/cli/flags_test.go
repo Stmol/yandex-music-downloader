@@ -106,3 +106,38 @@ func TestParseDownloadOptionsRejectsPositionalArgs(t *testing.T) {
 		t.Fatalf("proceed = %v, exit code = %d, stderr: %s", parsed.proceed, parsed.exitCode, stderr.String())
 	}
 }
+
+func TestParseDownloadOptionsUsesEnvVariable(t *testing.T) {
+	t.Setenv("YAMDL_DOWNLOAD_DIR", "/env/download/path")
+
+	var stderr bytes.Buffer
+	parsed := parseDownloadOptions([]string{
+		"--token", "abc123",
+		"--link", "https://music.yandex.ru/album/123",
+	}, &stderr)
+
+	if !parsed.proceed {
+		t.Fatalf("expected proceed, exit code = %d, stderr: %s", parsed.exitCode, stderr.String())
+	}
+	if parsed.options.output != "/env/download/path" {
+		t.Fatalf("expected output = %q, got %q", "/env/download/path", parsed.options.output)
+	}
+}
+
+func TestParseDownloadOptionsFlagOverridesEnv(t *testing.T) {
+	t.Setenv("YAMDL_DOWNLOAD_DIR", "/env/download/path")
+
+	var stderr bytes.Buffer
+	parsed := parseDownloadOptions([]string{
+		"--token", "abc123",
+		"--link", "https://music.yandex.ru/album/123",
+		"--output", "/flag/download/path",
+	}, &stderr)
+
+	if !parsed.proceed {
+		t.Fatalf("expected proceed, exit code = %d, stderr: %s", parsed.exitCode, stderr.String())
+	}
+	if parsed.options.output != "/flag/download/path" {
+		t.Fatalf("expected output = %q, got %q", "/flag/download/path", parsed.options.output)
+	}
+}

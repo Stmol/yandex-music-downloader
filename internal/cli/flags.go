@@ -5,11 +5,19 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"ya-music/ya"
 )
 
 const defaultOutputDir = "./downloads"
+
+func resolveDefaultOutputDir() string {
+	if dir := strings.TrimSpace(os.Getenv("YAMDL_DOWNLOAD_DIR")); dir != "" {
+		return dir
+	}
+	return defaultOutputDir
+}
 
 type sharedFlags struct {
 	timeoutSeconds int
@@ -69,7 +77,7 @@ func parseTUIOptions(args []string, stderr io.Writer) parseOutcome[tuiOptions] {
 }
 
 func parseDownloadOptions(args []string, stderr io.Writer) parseOutcome[downloadOptions] {
-	options := downloadOptions{format: ya.AudioFormatMP3, output: defaultOutputDir}
+	options := downloadOptions{format: ya.AudioFormatMP3, output: resolveDefaultOutputDir()}
 	flags := flag.NewFlagSet("yamdl download", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.token, "token", "", "Yandex Music authentication token (required)")
