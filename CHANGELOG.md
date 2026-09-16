@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.13.3 - 2026-09-16
+
+This release makes custom download locations reliable across both the CLI and the terminal UI.
+
+### Highlights
+
+- Added `YAMDL_DOWNLOAD_DIR` as a default download-directory setting, with the `--output` flag taking precedence.
+- Added output-directory preflight checks that create missing directories, reject file paths, and verify write access before downloading.
+- Improved CLI error handling and terminal UI feedback when the configured directory cannot be used.
+
+### Validation
+
+- Added regression coverage for environment defaults, flag overrides, invalid paths, and unwritable directories.
+- Updated the README with the new output-directory behavior.
+
 ## v1.13.2 - 2026-08-21
 - make batch interruption two-stage: the first Ctrl+C or SIGTERM stops scheduling new tracks and lets active downloads finish, while the second signal force-cancels active HTTP requests
 - keep distinct tracks with colliding sanitized names by adding deterministic `[track-id]` filename suffixes instead of skipping them as duplicates
