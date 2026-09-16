@@ -2,6 +2,8 @@ package utils
 
 import (
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -72,7 +74,7 @@ func TestResolveOutputDir(t *testing.T) {
 
 func TestEnsureOutputDir(t *testing.T) {
 	t.Run("creates valid directory", func(t *testing.T) {
-		dir := t.TempDir() + "/nested/downloads"
+		dir := filepath.Join(t.TempDir(), "nested", "downloads")
 		err := EnsureOutputDir(dir)
 		assert.NoError(t, err)
 
@@ -90,5 +92,23 @@ func TestEnsureOutputDir(t *testing.T) {
 		err = EnsureOutputDir(tmpFile.Name())
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not a directory")
+	})
+
+	t.Run("fails when directory is not writable", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("skipping chmod write-permission test on Windows")
+		}
+
+		roDir := filepath.Join(t.TempDir(), "readonly")
+		err := os.Mkdir(roDir, 0555)
+		assert.NoError(t, err)
+		defer os.Chmod(roDir, 0755)
+
+		err = EnsureOutputDir(roDir)
+		if err == nil {
+			t.Skip("skipping: running as root or filesystem ignores 0555 permissions")
+		}
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not writable")
 	})
 }

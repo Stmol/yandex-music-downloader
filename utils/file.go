@@ -20,7 +20,6 @@ func ResolveOutputDir() string {
 	return DefaultOutputDir
 }
 
-// EnsureOutputDir creates the directory if it does not exist and verifies it is accessible and a directory.
 func EnsureOutputDir(path string) error {
 	if err := CreateDirIfNotExists(path); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
@@ -32,6 +31,15 @@ func EnsureOutputDir(path string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("output path is not a directory: %s", path)
 	}
+
+	// Verify write permission by creating and immediately removing a temporary test file.
+	testFile, err := os.CreateTemp(path, ".write_test_*")
+	if err != nil {
+		return fmt.Errorf("output directory is not writable: %w", err)
+	}
+	_ = testFile.Close()
+	_ = os.Remove(testFile.Name())
+
 	return nil
 }
 
