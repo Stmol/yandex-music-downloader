@@ -22,8 +22,7 @@ import (
 
 // Global constants.
 const (
-	outputDir                = "./downloads" // Root directory for downloads.
-	maxConcurrentDownloads   = 3             // Maximum number of concurrent downloads.
+	maxConcurrentDownloads   = 3 // Maximum number of concurrent downloads.
 	defaultTrackListHeight   = 18
 	minTrackListHeight       = 6
 	downloadHorizontalChrome = 5
@@ -166,6 +165,9 @@ type DownloadModel struct {
 	client          *ya.Client
 	downloadOptions ya.DownloadOptions
 
+	// Error message.
+	errorMsg string
+
 	// UI components.
 	spinner   spinner.Model
 	progress  progress.Model
@@ -279,6 +281,7 @@ func (m *DownloadModel) Reset() {
 	m.lastActionFocus = viewFormatMP3
 	m.help.ShowAll = false
 	m.selectedTrackInfo = ""
+	m.errorMsg = ""
 	m.hideDuplicates = false
 	m.trackList.ResetFilter()
 	m.trackList.ResetSelected()
@@ -517,7 +520,11 @@ func (m DownloadModel) fixedDownloadHeight() int {
 
 func (m DownloadModel) headerBlock() string {
 	header := renderHeader(m.downloadedCount, m.tracksTotalCount, m.downloadableCount, m.errorCount)
-	return marginLeftStyle.Render(header) + "\n" + marginLeftStyle.Render(m.selectedTrackInfo)
+	info := m.selectedTrackInfo
+	if m.errorMsg != "" {
+		info = redForeground.Render(m.errorMsg)
+	}
+	return marginLeftStyle.Render(header) + "\n" + marginLeftStyle.Render(info)
 }
 
 func (m DownloadModel) trackListStyle() lipgloss.Style {
@@ -563,9 +570,10 @@ func (m DownloadModel) startDownloadSession() tea.Cmd {
 	client := m.client
 	logger := downloadLogger(client)
 	options := m.downloadOptions
+	targetDir := utils.ResolveOutputDir()
 
 	return func() tea.Msg {
-		session := NewDownloadSession(client, logger, options, outputDir)
+		session := NewDownloadSession(client, logger, options, targetDir)
 		return downloadSessionStartedMsg{events: session.Run(progress)}
 	}
 }
@@ -700,12 +708,19 @@ func (m *DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {
 		if m.isDownloading {
 			return *m, nil
 		}
+		m.errorMsg = ""
+		targetDir := utils.ResolveOutputDir()
+		if err := utils.EnsureOutputDir(targetDir); err != nil {
+			downloadLogger(m.client).Error("failed to prepare output directory", "error", err, "path", targetDir)
+			m.errorMsg = fmt.Sprintf("Directory error: %v", err)
+			return *m, nil
+		}
+
 		m.isDownloading = true
 		m.resetState()
 		m.focusedView = viewList
 		m.resizeToWindow()
 
-		utils.CreateDirIfNotExists(outputDir)
 		return *m, m.startDownloadSession()
 
 	case viewQuitButton:

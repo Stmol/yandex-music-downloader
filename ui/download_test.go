@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"ya-music/utils"
@@ -845,7 +846,7 @@ func TestDownloadSessionLogsSkippedReasons(t *testing.T) {
 		},
 	}
 
-	session := NewDownloadSession(client, logger, ya.DownloadOptions{}, outputDir)
+	session := NewDownloadSession(client, logger, ya.DownloadOptions{}, t.TempDir())
 	for range session.Run(progressList) {
 	}
 
@@ -931,4 +932,22 @@ func TestDownloadEndQuitsAfterShutdownRequest(t *testing.T) {
 	if assert.NotNil(t, cmd) {
 		assert.IsType(t, tea.QuitMsg{}, cmd())
 	}
+}
+
+func TestDownloadModelDirectoryError(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "not_a_dir")
+	assert.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	t.Setenv("YAMDL_DOWNLOAD_DIR", tmpFile.Name())
+
+	m := NewDownloadModel(nil)
+	m.focusedView = viewDownloadButton
+	updated, cmd := m.activateFocusedControl()
+
+	assert.False(t, updated.isDownloading)
+	assert.Nil(t, cmd)
+	assert.NotEmpty(t, updated.errorMsg)
+	assert.Contains(t, updated.headerBlock(), updated.errorMsg)
 }

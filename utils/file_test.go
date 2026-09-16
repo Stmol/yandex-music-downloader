@@ -1,7 +1,10 @@
 package utils
 
 import (
+	"errors"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,4 +54,63 @@ func TestFileExists(t *testing.T) {
 	exists, err = FileExists("non_existing_file")
 	assert.NoError(t, err)
 	assert.False(t, exists)
+}
+
+func TestResolveOutputDir(t *testing.T) {
+	t.Run("default fallback", func(t *testing.T) {
+		t.Setenv(EnvDownloadDir, "")
+		assert.Equal(t, DefaultOutputDir, ResolveOutputDir())
+	})
+
+	t.Run("from environment variable", func(t *testing.T) {
+		t.Setenv(EnvDownloadDir, "/custom/music/path")
+		assert.Equal(t, "/custom/music/path", ResolveOutputDir())
+	})
+
+	t.Run("whitespace fallback", func(t *testing.T) {
+		t.Setenv(EnvDownloadDir, "   ")
+		assert.Equal(t, DefaultOutputDir, ResolveOutputDir())
+	})
+}
+
+func TestEnsureOutputDir(t *testing.T) {
+	t.Run("creates valid directory", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "nested", "downloads")
+		err := EnsureOutputDir(dir)
+		assert.NoError(t, err)
+
+		info, err := os.Stat(dir)
+		assert.NoError(t, err)
+		assert.True(t, info.IsDir())
+	})
+
+	t.Run("fails when path is a file", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "not_a_dir")
+		assert.NoError(t, err)
+		defer os.Remove(tmpFile.Name())
+		tmpFile.Close()
+
+		err = EnsureOutputDir(tmpFile.Name())
+		assert.Error(t, err)
+		assert.True(t, errors.Is(err, ErrOutputPathNotDirectory))
+		assert.Contains(t, err.Error(), "not a directory")
+	})
+
+	t.Run("fails when directory is not writable", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("skipping chmod write-permission test on Windows")
+		}
+
+		roDir := filepath.Join(t.TempDir(), "readonly")
+		err := os.Mkdir(roDir, 0555)
+		assert.NoError(t, err)
+		defer os.Chmod(roDir, 0755)
+
+		err = EnsureOutputDir(roDir)
+		if err == nil {
+			t.Skip("skipping: running as root or filesystem ignores 0555 permissions")
+		}
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not writable")
+	})
 }

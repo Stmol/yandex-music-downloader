@@ -33,6 +33,7 @@ A GUI application for downloading tracks from the Yandex Music streaming service
 -   Launch the application from the terminal: `./yamdl`
 -   Optional: set a download timeout in seconds: `./yamdl --timeout 180`
 -   Optional: skip cover download and embedding to save time and traffic: `./yamdl --skip-cover=true`
+-   Optional: set a default download directory via environment variable: `export YAMDL_DOWNLOAD_DIR="/path/to/music"`
 
 ## Development
 
@@ -66,7 +67,7 @@ Available options:
 - `--token <token>` is required. Provide your Yandex Music OAuth token.
 - `--link <url>` is required. Provide a Yandex Music track, album, playlist, or chart URL.
 - `--format <mp3|flac>` selects MP3 or lossless download; MP3 is the default.
-- `--output <directory>` selects the destination directory; `./downloads` is the default.
+- `--output <directory>` selects the destination directory (defaults to `YAMDL_DOWNLOAD_DIR` if set, or `./downloads`). Passing this flag overrides the environment variable.
 - `--timeout <seconds>` limits the download time for each audio file. Use `0`, the default, to disable the limit.
 - `--skip-cover` skips downloading and embedding cover art. Text metadata is still written.
 
@@ -134,7 +135,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 -   Depending on the source returned by Yandex Music, a lossless track may be saved as either `FLAC` or `M4A`
 -   Supported source URLs include tracks, albums, playlists, and Yandex Music charts
 -   If FLAC is unavailable or cannot be downloaded, the app automatically falls back to the best available MP3
--   Downloads are saved to `./downloads` in the application's working directory
+-   Downloads are saved to `./downloads` in the application's working directory (or to the directory specified by the `YAMDL_DOWNLOAD_DIR` environment variable)
 -   Track status indicators:
 
 ```
@@ -169,8 +170,8 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 ### 7. Completion
 
 -   The progress bar fills completely upon download completion
--   Downloaded tracks are available in the `./downloads` directory
--   A track is marked as completed after the audio file is saved. For MP3 and FLAC of that format, tagging must succeed before the file appears in `./downloads`; in lossless mode a FLAC tagging failure still falls back to MP3. For M4A, metadata is best-effort and tagging failures do not block delivery. Cover download failures are ignored so they do not block the track
+-   Downloaded tracks are available in the `./downloads` directory (or the directory specified by `YAMDL_DOWNLOAD_DIR` environment variable)
+-   A track is marked as completed after the audio file is saved. For MP3 and FLAC of that format, tagging must succeed before the file appears in the destination directory; in lossless mode a FLAC tagging failure still falls back to MP3. For M4A, metadata is best-effort and tagging failures do not block delivery. Cover download failures are ignored so they do not block the track
 
 ![download complete](assets/img_download_complete.png)
 

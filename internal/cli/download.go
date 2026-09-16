@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 	"ya-music/internal/batch"
@@ -27,6 +26,15 @@ func newLoggedClient(timeoutSeconds int, stderr io.Writer) (*utils.DownloadLogge
 	httpClient := utils.NewHttpClientWithLogger(downloadLogger)
 	httpClient.SetDownloadTimeout(time.Duration(timeoutSeconds) * time.Second)
 	return downloadLogger, ya.NewClient(httpClient)
+}
+
+func handleOutputDirError(stderr io.Writer, err error) int {
+	if errors.Is(err, utils.ErrOutputPathNotDirectory) {
+		fmt.Fprintln(stderr, "--output must be a directory")
+		return 2
+	}
+	fmt.Fprintf(stderr, "failed to prepare output directory: %v\n", err)
+	return 1
 }
 
 func runDownload(args []string, stdout, stderr io.Writer) int {
@@ -58,18 +66,8 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 	}
 	tracks := preflight.tracks
 
-	if err := utils.CreateDirIfNotExists(options.output); err != nil {
-		fmt.Fprintf(stderr, "failed to create output directory: %v\n", err)
-		return 1
-	}
-	outputInfo, err := os.Stat(options.output)
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to inspect output directory: %v\n", err)
-		return 1
-	}
-	if !outputInfo.IsDir() {
-		fmt.Fprintln(stderr, "--output must be a directory")
-		return 2
+	if err := utils.EnsureOutputDir(options.output); err != nil {
+		return handleOutputDirError(stderr, err)
 	}
 
 	downloadLogger.Info("batch download started",
