@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -12,8 +13,21 @@ import (
 	"testing"
 	"time"
 	"ya-music/internal/batch"
+	"ya-music/utils"
 	"ya-music/ya/model"
 )
+
+func TestHandleOutputDirErrorKeepsFileExitCode(t *testing.T) {
+	var stderr bytes.Buffer
+	err := fmt.Errorf("%w: %s", utils.ErrOutputPathNotDirectory, "/tmp/output-file")
+
+	if got := handleOutputDirError(&stderr, err); got != 2 {
+		t.Fatalf("exit code = %d, want 2", got)
+	}
+	if got, want := stderr.String(), "--output must be a directory\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+}
 
 func TestConsumeDownloadEventsEmitHelperKeepsOrder(t *testing.T) {
 	tracks := []model.Track{

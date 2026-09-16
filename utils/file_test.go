@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -91,6 +92,7 @@ func TestEnsureOutputDir(t *testing.T) {
 
 		err = EnsureOutputDir(tmpFile.Name())
 		assert.Error(t, err)
+		assert.True(t, errors.Is(err, ErrOutputPathNotDirectory))
 		assert.Contains(t, err.Error(), "not a directory")
 	})
 

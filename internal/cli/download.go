@@ -28,6 +28,15 @@ func newLoggedClient(timeoutSeconds int, stderr io.Writer) (*utils.DownloadLogge
 	return downloadLogger, ya.NewClient(httpClient)
 }
 
+func handleOutputDirError(stderr io.Writer, err error) int {
+	if errors.Is(err, utils.ErrOutputPathNotDirectory) {
+		fmt.Fprintln(stderr, "--output must be a directory")
+		return 2
+	}
+	fmt.Fprintf(stderr, "failed to prepare output directory: %v\n", err)
+	return 1
+}
+
 func runDownload(args []string, stdout, stderr io.Writer) int {
 	parsed := parseDownloadOptions(args, stderr)
 	if !parsed.proceed {
@@ -58,8 +67,7 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 	tracks := preflight.tracks
 
 	if err := utils.EnsureOutputDir(options.output); err != nil {
-		fmt.Fprintf(stderr, "failed to prepare output directory: %v\n", err)
-		return 1
+		return handleOutputDirError(stderr, err)
 	}
 
 	downloadLogger.Info("batch download started",

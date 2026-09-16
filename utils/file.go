@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -10,6 +11,9 @@ const (
 	DefaultOutputDir = "./downloads"
 	EnvDownloadDir   = "YAMDL_DOWNLOAD_DIR"
 )
+
+// ErrOutputPathNotDirectory indicates that the output path is not a directory.
+var ErrOutputPathNotDirectory = errors.New("output path is not a directory")
 
 // ResolveOutputDir returns the download destination directory configured via the
 // YAMDL_DOWNLOAD_DIR environment variable, falling back to DefaultOutputDir ("./downloads").
@@ -29,7 +33,7 @@ func EnsureOutputDir(path string) error {
 		return fmt.Errorf("failed to inspect output directory: %w", err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("output path is not a directory: %s", path)
+		return fmt.Errorf("%w: %s", ErrOutputPathNotDirectory, path)
 	}
 
 	// Verify write permission by creating and immediately removing a temporary test file.
@@ -37,8 +41,11 @@ func EnsureOutputDir(path string) error {
 	if err != nil {
 		return fmt.Errorf("output directory is not writable: %w", err)
 	}
-	_ = testFile.Close()
-	_ = os.Remove(testFile.Name())
+	closeErr := testFile.Close()
+	removeErr := os.Remove(testFile.Name())
+	if err := errors.Join(closeErr, removeErr); err != nil {
+		return fmt.Errorf("failed to finalize output directory probe: %w", err)
+	}
 
 	return nil
 }
