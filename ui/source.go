@@ -128,14 +128,17 @@ func (m SourceModel) View() tea.View {
 }
 
 func (m SourceModel) render() string {
-	s := "What do you want to download?\n\n"
-	s += dimGrayForeground.Render("Examples of URL:")
-	s += dimGrayForeground.Render("\n- Track: https://music.yandex.ru/album/1231231/track/12312345")
-	s += dimGrayForeground.Render("\n- Album: https://music.yandex.ru/album/1231231")
-	s += dimGrayForeground.Render("\n- Playlist: https://music.yandex.ru/playlists/4dc94b2f-e96b-2daf-a53c-ce71846901b3")
-	s += dimGrayForeground.Render("\n- Legacy playlist: https://music.yandex.ru/users/username/playlists/12312311")
-	s += dimGrayForeground.Render("\n- Chart: https://music.yandex.ru/chart (or /chart/world)")
-	s += "\n\n"
+	s := renderScreenHeader("SOURCE", "Paste a Yandex Music link") + "\n\n"
+	s += sectionLabelStyle.Render("SUPPORTED SOURCES") + "\n"
+	s += dimGrayForeground.Render("Track  ·  Album  ·  Playlist  ·  Chart") + "\n\n"
+	s += sectionLabelStyle.Render("URL EXAMPLES") + "\n"
+	s += dimGrayForeground.Render(strings.Join([]string{
+		"· Track: https://music.yandex.ru/album/1231231/track/12312345",
+		"· Album: https://music.yandex.ru/album/1231231",
+		"· Playlist: https://music.yandex.ru/playlists/4dc94b2f-e96b-2daf-a53c-ce71846901b3",
+		"· Legacy playlist: https://music.yandex.ru/users/username/playlists/12312311",
+		"· Chart: https://music.yandex.ru/chart (or /chart/world)",
+	}, "\n")) + "\n\n"
 	s += m.urlInput.View()
 
 	if m.isProcessing {

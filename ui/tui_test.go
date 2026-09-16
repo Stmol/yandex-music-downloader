@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -42,6 +43,16 @@ func TestStartUiPassesDownloadOptions(t *testing.T) {
 
 	assert.True(t, model.downloadModel.downloadOptions.SkipCover)
 	assert.Equal(t, ya.AudioFormatFLAC, model.downloadModel.downloadOptions.FormatOrDefault())
+}
+
+func TestInputScreensUseSharedBrandHeader(t *testing.T) {
+	tokenView := ansi.Strip(NewTokenModel(nil).render())
+	sourceView := ansi.Strip(NewSourceModel(nil).render())
+
+	assert.Contains(t, tokenView, "yamdl  //  AUTH")
+	assert.Contains(t, tokenView, "Connect to Yandex Music")
+	assert.Contains(t, sourceView, "yamdl  //  SOURCE")
+	assert.Contains(t, sourceView, "Paste a Yandex Music link")
 }
 
 func TestWindowSizeMsgIsStoredAndAppliedToChildModels(t *testing.T) {

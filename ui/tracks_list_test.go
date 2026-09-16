@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"ya-music/ya/model"
@@ -115,13 +116,75 @@ func TestTrackListItemDownloadedStatusIncludesFormat(t *testing.T) {
 	var row bytes.Buffer
 	renderer.Render(&row, modelList, 0, items[0])
 
-	assert.Contains(t, ansi.Strip(row.String()), "✅ FLAC")
+	assert.Contains(t, ansi.Strip(row.String()), "✓ FLAC")
 }
 
 func TestTrackListItemDownloadedStatusDefaultsToMP3(t *testing.T) {
 	item := TrackListItem{status: TrackStatusDownloaded}
 
-	assert.Equal(t, "✅ MP3", item.statusLabel())
+	assert.Equal(t, "✓ MP3", item.statusLabel())
+}
+
+func TestTrackListItemDownloadingStatusUsesRunningMarker(t *testing.T) {
+	items := []list.Item{
+		TrackListItem{
+			uid:    "item",
+			track:  &model.Track{Title: "Song"},
+			status: TrackStatusDownloading,
+		},
+	}
+	modelList := list.New(items, TrackListItem{}, 80, 20)
+	renderer := TrackListItem{}
+
+	var row bytes.Buffer
+	renderer.Render(&row, modelList, 0, items[0])
+
+	plainRow := ansi.Strip(row.String())
+	assert.Contains(t, plainRow, "● Downloading...")
+	assert.Equal(t, 80, ansi.StringWidth(plainRow))
+}
+
+func TestTrackListItemKeepsNumberAndTitleColumnsStableWhenHidingDuplicates(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.tracksProgress = make([]*TrackProgress, 108)
+	for i := range m.tracksProgress {
+		status := TrackStatusReady
+		if (i+1)%4 == 0 {
+			status = TrackStatusDuplicate
+		}
+		m.tracksProgress[i] = &TrackProgress{
+			uid:    fmt.Sprintf("track-%d", i),
+			track:  &model.Track{Title: "Stable Track"},
+			status: status,
+		}
+	}
+
+	m.updateTrackList()
+	fullItems := m.trackList.Items()
+	var fullRow bytes.Buffer
+	TrackListItem{}.Render(&fullRow, m.trackList, 0, fullItems[0])
+
+	_, _ = m.Update(keyText("t"))
+	hiddenItems := m.trackList.Items()
+	assert.Len(t, hiddenItems, 81)
+	var hiddenRow bytes.Buffer
+	TrackListItem{}.Render(&hiddenRow, m.trackList, 0, hiddenItems[0])
+
+	fullPlain := ansi.Strip(fullRow.String())
+	hiddenPlain := ansi.Strip(hiddenRow.String())
+
+	assert.Contains(t, fullPlain, "01. Stable Track")
+	assert.Contains(t, hiddenPlain, "01. Stable Track")
+	assert.Equal(t, strings.Index(fullPlain, "Stable Track"), strings.Index(hiddenPlain, "Stable Track"))
+	assert.Equal(t, strings.Index(fullPlain, "Ready"), strings.Index(hiddenPlain, "Ready"))
+}
+
+func TestFormatTrackNumberAddsLeadingZeroOnlyToSingleDigits(t *testing.T) {
+	assert.Equal(t, "01. ", formatTrackNumber(0, 2))
+	assert.Equal(t, "10. ", formatTrackNumber(9, 2))
+	assert.Equal(t, " 01. ", formatTrackNumber(0, 3))
+	assert.Equal(t, " 10. ", formatTrackNumber(9, 3))
+	assert.Equal(t, "100. ", formatTrackNumber(99, 3))
 }
 
 func TestTrackListItemRenderHandlesWideTitleCharacters(t *testing.T) {

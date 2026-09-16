@@ -7,7 +7,6 @@ import (
 	"ya-music/ya"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 )
 
 type UiState int
@@ -20,16 +19,6 @@ const (
 	minInputWidth         = 20
 	inputHorizontalChrome = 4
 	rootTopPadding        = 2
-)
-
-var (
-	redForeground     = lipgloss.NewStyle().Foreground(lipgloss.Color("#CC0000"))
-	greenForeground   = lipgloss.NewStyle().Foreground(lipgloss.Color("#006400"))
-	grayForeground    = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
-	dimGrayForeground = lipgloss.NewStyle().Foreground(lipgloss.Color("#808080"))
-	boldStyle         = lipgloss.NewStyle().Bold(true)
-	boldRedStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
-	spinnerStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 )
 
 // BackToURLMsg is sent when the user chooses to leave the download screen and return to URL input.

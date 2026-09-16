@@ -14,16 +14,16 @@ import (
 )
 
 var (
-	selectedItemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFF7FF")).Background(focusSurfaceColor)
+	selectedItemStyle = lipgloss.NewStyle().Foreground(primaryTextColor).Background(focusSurfaceColor)
 	emptyItemStyle    = lipgloss.NewStyle()
 
 	// Unselected styles
 	trackNumberStyle = lipgloss.NewStyle().PaddingLeft(4)
-	descriptionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	descriptionStyle = lipgloss.NewStyle().Foreground(mutedColor)
 
 	// Selected styles
-	selectedTrackNumberStyle      = lipgloss.NewStyle().Foreground(accentColor).PaddingLeft(2).Background(focusSurfaceColor)
-	selectedTrackDescriptionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#B7AEBB")).Background(focusSurfaceColor)
+	selectedTrackNumberStyle      = lipgloss.NewStyle().Foreground(accentColor).PaddingLeft(2).Background(focusSurfaceColor).Bold(true)
+	selectedTrackDescriptionStyle = lipgloss.NewStyle().Foreground(secondaryTextColor).Background(focusSurfaceColor)
 
 	// Status styles for unselected items
 	readyStatusStyle         = greenForeground
@@ -51,9 +51,9 @@ func (t TrackStatus) String() string {
 	case TrackStatusDuplicate:
 		return "Duplicate"
 	case TrackStatusDownloading:
-		return "Downloading..."
+		return "● Downloading..."
 	case TrackStatusDownloaded:
-		return "✅"
+		return "✓"
 	case TrackStatusError:
 		return "Error"
 	case TrackStatusReady:
@@ -70,10 +70,11 @@ func (t TrackStatus) String() string {
 type ListSelectedItemMsg string
 
 type TrackListItem struct {
-	uid    string
-	track  *model.Track
-	status TrackStatus
-	format string
+	uid               string
+	track             *model.Track
+	status            TrackStatus
+	format            string
+	trackNumberDigits int
 }
 
 func (t TrackListItem) FilterValue() string {
@@ -139,7 +140,11 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 
 	isSelected := index == m.Index()
 
-	trackNumber := formatTrackNumber(index, len(m.Items()))
+	trackNumberDigits := item.trackNumberDigits
+	if trackNumberDigits <= 0 {
+		trackNumberDigits = trackNumberColumnDigits(len(m.Items()))
+	}
+	trackNumber := formatTrackNumber(index, trackNumberDigits)
 	trackNumberStyleToUse := trackNumberStyle
 	if isSelected {
 		trackNumberStyleToUse = selectedTrackNumberStyle
@@ -186,7 +191,7 @@ func (t TrackListItem) Render(w io.Writer, m list.Model, index int, listItem lis
 	fmt.Fprint(w, str)
 }
 
-const trackStatusColumnWidth = 15
+const trackStatusColumnWidth = 16
 
 func formatStatusColumn(label string) string {
 	return padToWidth(truncateToWidth(label, trackStatusColumnWidth), trackStatusColumnWidth)
@@ -258,11 +263,16 @@ func (t TrackListItem) statusLabel() string {
 	return t.status.String() + " " + format
 }
 
-func formatTrackNumber(index int, totalItems int) string {
-	width := len(strconv.Itoa(totalItems))
-	if width <= 2 {
-		return fmt.Sprintf("%02d. ", index+1)
-	}
+func trackNumberColumnDigits(totalItems int) int {
+	return max(2, len(strconv.Itoa(totalItems)))
+}
 
-	return fmt.Sprintf("%*d. ", width, index+1)
+func formatTrackNumber(index int, numberDigits int) string {
+	numberDigits = max(2, numberDigits)
+	number := fmt.Sprintf("%02d. ", index+1)
+	columnWidth := numberDigits + 2
+	if width := runewidth.StringWidth(number); width < columnWidth {
+		number = strings.Repeat(" ", columnWidth-width) + number
+	}
+	return number
 }

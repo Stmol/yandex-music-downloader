@@ -767,6 +767,54 @@ func TestRenderHeader(t *testing.T) {
 	assert.NotContains(t, header, "\nTo download")
 }
 
+func TestQueueHeaderShowsBrandFormatAndVerboseStats(t *testing.T) {
+	m := NewDownloadModel(nil, ya.DownloadOptions{AudioFormat: ya.AudioFormatFLAC})
+	m.trackList.SetWidth(100)
+	m.tracksTotalCount = 10
+	m.downloadableCount = 8
+	m.downloadedCount = 5
+	m.errorCount = 2
+
+	header := ansi.Strip(m.renderQueueHeader())
+
+	assert.Contains(t, header, "yamdl")
+	assert.Contains(t, header, "DOWNLOAD QUEUE")
+	assert.Contains(t, header, "10 total")
+	assert.Contains(t, header, "8 ready")
+	assert.Contains(t, header, "5 done")
+	assert.Contains(t, header, "2 errors")
+	assert.Contains(t, header, "[ FLAC ]")
+}
+
+func TestQueueHeaderCompactsToNarrowTerminal(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.trackList.SetWidth(40)
+	m.tracksTotalCount = 120
+	m.downloadableCount = 80
+	m.downloadedCount = 35
+	m.errorCount = 5
+
+	header := ansi.Strip(m.renderQueueHeader())
+
+	assert.LessOrEqual(t, lipgloss.Width(header), 40)
+	assert.Contains(t, header, "Q")
+	assert.Contains(t, header, "120t/80r/35d/5e")
+}
+
+func TestQueueHeaderTruncatesOversizedCompactStats(t *testing.T) {
+	m := NewDownloadModel(nil)
+	m.trackList.SetWidth(40)
+	m.tracksTotalCount = 1000
+	m.downloadableCount = 1000
+	m.downloadedCount = 1000
+	m.errorCount = 1000
+
+	header := ansi.Strip(m.renderQueueHeader())
+
+	assert.LessOrEqual(t, lipgloss.Width(header), 40)
+	assert.Contains(t, header, "yamdl")
+}
+
 func TestSortTracksByTitle(t *testing.T) {
 	tracks := []*TrackProgress{
 		{track: &model.Track{Title: "C"}},
@@ -949,5 +997,5 @@ func TestDownloadModelDirectoryError(t *testing.T) {
 	assert.False(t, updated.isDownloading)
 	assert.Nil(t, cmd)
 	assert.NotEmpty(t, updated.errorMsg)
-	assert.Contains(t, updated.headerBlock(), updated.errorMsg)
+	assert.Contains(t, ansi.Strip(updated.headerBlock()), "Directory error: output path is not a directory")
 }
