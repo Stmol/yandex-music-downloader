@@ -3,7 +3,7 @@
 A GUI application for downloading tracks from the Yandex Music streaming service.
 
 <div align="center">
-  <img src="assets/img_tracks_downloading.png" title="tracks downloading" alt="tracks downloading" width="100%" />
+  <img src="assets/img_download_in_progress.png" title="tracks downloading" alt="tracks downloading" width="100%" />
 </div>
 
 ⚠️  This is an unofficial application and is not affiliated with Yandex or its services.
@@ -140,14 +140,14 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 
 ```
     Ready - Track is queued for download
-    Downloading - Download in progress
+    ● Downloading... - Download in progress
     Error - Download failed
     Already Exists - File exists in target directory
     Duplicate - Duplicate track in current playlist
     Not Available - Track unavailable (likely due to licensing restrictions)
-    ✅ MP3 - Download completed as MP3, including MP3 fallback from FLAC mode
-    ✅ FLAC - Download completed as lossless FLAC
-    ✅ M4A - Download completed as lossless M4A
+    ✓ MP3 - Download completed as MP3, including MP3 fallback from FLAC mode
+    ✓ FLAC - Download completed as lossless FLAC
+    ✓ M4A - Download completed as lossless M4A
 ```
 
 ![tracks list](assets/img_ready_to_download.png)
@@ -157,7 +157,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 -   Press uppercase `<D>` to start `Download all` directly, or focus it in the action bar and press `<Enter>` or `<Space>`
 -   The download process will start
 -   Track statuses update in real-time
--   Completed tracks show the actual saved format in the status column, for example `✅ FLAC`, `✅ M4A`, or `✅ MP3`
+-   Completed tracks show the actual saved format in the status column, for example `✓ FLAC`, `✓ M4A`, or `✓ MP3`
 -   If you stop an active queue, interrupted tracks are returned to `Ready` so you can restart the download cleanly
 -   If needed, you can relaunch the app with `--timeout <seconds>` to limit how long a single file download may take
 -   By default, each MP3, FLAC, or M4A file is tagged with title, artist, album metadata, and Yandex track URL/source metadata. Cover art is optional: when available it is embedded during tagging and the temporary cover file is removed after download
@@ -180,8 +180,8 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 -   If the app reports `TERM=xterm`, run `export TERM=xterm-256color` and start it again; plain `xterm` cannot reliably render the colors, selected row, and focused controls
 -   If downloads fail, you can retry by focusing `Download all` after the process completes
 -   For persistent errors, try using your personal [authentication token](#authentication-token)
--   In lossless mode, a completed `✅ MP3` status means the app successfully used the MP3 fallback for that track
--   A completed `✅ M4A` status means Yandex Music returned the lossless track in an M4A container
+-   In lossless mode, a completed `✓ MP3` status means the app successfully used the MP3 fallback for that track
+-   A completed `✓ M4A` status means Yandex Music returned the lossless track in an M4A container
 -   You are welcome to open an issue or send a PR
 
 ## Acknowledgments

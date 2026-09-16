@@ -33,11 +33,6 @@ var (
 	marginLeftStyle     = lipgloss.NewStyle().MarginLeft(2)
 	baseTrackListStyle  = lipgloss.NewStyle().PaddingRight(3)
 	borderStyle         = lipgloss.NormalBorder()
-	queueBorderColor    = lipgloss.Color("#5F6573")
-	accentColor         = lipgloss.Color("#E46AC4")
-	focusSurfaceColor   = lipgloss.Color("#3B2C40")
-	activeColor         = lipgloss.Color("#F29AD6")
-	mutedColor          = lipgloss.Color("#80838D")
 	actionBarFocusStyle = lipgloss.NewStyle().MarginTop(1).Border(borderStyle).BorderForeground(accentColor).Padding(0, 1)
 	actionBarBlurStyle  = lipgloss.NewStyle().MarginTop(1).Border(borderStyle).BorderForeground(queueBorderColor).Padding(0, 1)
 	controlBaseStyle    = lipgloss.NewStyle()
@@ -519,12 +514,16 @@ func (m DownloadModel) fixedDownloadHeight() int {
 }
 
 func (m DownloadModel) headerBlock() string {
-	header := renderHeader(m.downloadedCount, m.tracksTotalCount, m.downloadableCount, m.errorCount)
+	header := m.renderQueueHeader()
 	info := m.selectedTrackInfo
 	if m.errorMsg != "" {
 		info = redForeground.Render(m.errorMsg)
 	}
-	return marginLeftStyle.Render(header) + "\n" + marginLeftStyle.Render(info)
+	if info == "" {
+		info = dimGrayForeground.Render("Select a track to inspect its details")
+	}
+	info = capLinesToWidth(info, m.trackList.Width())
+	return marginLeftStyle.Render(header) + "\n\n" + marginLeftStyle.Render(info)
 }
 
 func (m DownloadModel) trackListStyle() lipgloss.Style {
@@ -608,15 +607,17 @@ func (m *DownloadModel) resetState() {
 
 func (m *DownloadModel) updateTrackList() {
 	items := make([]list.Item, 0, len(m.tracksProgress))
+	trackNumberDigits := trackNumberColumnDigits(len(m.tracksProgress))
 	for _, tp := range m.tracksProgress {
 		if m.hideDuplicates && tp.status == TrackStatusDuplicate {
 			continue
 		}
 		items = append(items, TrackListItem{
-			uid:    tp.uid,
-			track:  tp.track,
-			status: tp.status,
-			format: tp.format,
+			uid:               tp.uid,
+			track:             tp.track,
+			status:            tp.status,
+			format:            tp.format,
+			trackNumberDigits: trackNumberDigits,
 		})
 	}
 	m.trackList.SetItems(items)
@@ -684,7 +685,55 @@ func renderHeader(completed, total, downloadable, errors int) string {
 }
 
 func renderCounter(label string, value int) string {
-	return dimGrayForeground.Render(label+":") + " " + fmt.Sprintf("%d", value)
+	return dimGrayForeground.Render(label+":") + " " + headerValueStyle.Render(fmt.Sprintf("%d", value))
+}
+
+func (m DownloadModel) renderQueueHeader() string {
+	width := m.trackList.Width()
+	if width <= 0 {
+		width = responsiveWidth(m.windowWidth, downloadHorizontalChrome, 40)
+	}
+
+	format := strings.ToUpper(string(m.downloadOptions.FormatOrDefault()))
+	verboseStats := fmt.Sprintf(
+		"%d total · %d ready · %d done · %d errors",
+		m.tracksTotalCount,
+		m.downloadableCount,
+		m.downloadedCount,
+		m.errorCount,
+	)
+	compactStats := fmt.Sprintf(
+		"%dt/%dr/%dd/%de",
+		m.tracksTotalCount,
+		m.downloadableCount,
+		m.downloadedCount,
+		m.errorCount,
+	)
+
+	render := func(section, stats string) string {
+		return lipgloss.JoinHorizontal(
+			lipgloss.Center,
+			appBrandStyle.Render("yamdl"),
+			headerDividerStyle.Render("  //  "),
+			sectionLabelStyle.Render(section),
+			headerDividerStyle.Render("  "),
+			headerValueStyle.Render(stats),
+			headerDividerStyle.Render("  "),
+			headerFormatStyle.Render("[ "+format+" ]"),
+		)
+	}
+
+	header := render("DOWNLOAD QUEUE", verboseStats)
+	if lipgloss.Width(header) <= width {
+		return header
+	}
+
+	header = render("QUEUE", compactStats)
+	if lipgloss.Width(header) <= width {
+		return header
+	}
+
+	return ansi.Truncate(render("Q", compactStats), width, "…")
 }
 
 func (m *DownloadModel) activateFocusedControl() (DownloadModel, tea.Cmd) {

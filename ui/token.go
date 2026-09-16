@@ -94,15 +94,17 @@ func (m TokenModel) View() tea.View {
 }
 
 func (m TokenModel) render() string {
+	header := renderScreenHeader("AUTH", "Connect to Yandex Music")
+
 	switch {
 	case m.isCheckingToken:
-		return fmt.Sprintf("%s Checking token...", m.loadingSpinner.View())
+		return header + "\n\n" + fmt.Sprintf("%s Checking token...", m.loadingSpinner.View())
 	case m.confirmSave:
-		return m.renderSaveConfirmation()
+		return header + "\n\n" + m.renderSaveConfirmation()
 	case m.displayInput:
-		return m.renderInputField()
+		return header + "\n\n" + m.renderInputField()
 	default:
-		return ""
+		return header
 	}
 }
 
@@ -223,19 +225,19 @@ func (m TokenModel) renderSaveConfirmation() string {
 	}
 	tokenDisplay = boldStyle.Render(tokenDisplay)
 
-	return fmt.Sprintf("\n\nValid token: %s\n\nSave token to %s for future use? (%s)es/(%s)o",
+	return fmt.Sprintf("Valid token: %s\n\nSave token to %s for future use? (%s)es/(%s)o",
 		tokenDisplay, fileName, yesOption, noOption)
 }
 
 func (m TokenModel) renderInputField() string {
-	s := "Please enter your Yandex Music OAuth token:\n\n"
+	s := sectionLabelStyle.Render("YANDEX MUSIC OAUTH TOKEN") + "\n\n"
 	s += m.inputField.View()
 
 	if m.errorMessage != "" {
 		s += "\n\n" + redForeground.Render(m.errorMessage)
 	}
 
-	s += "\n\n" + dimGrayForeground.Render("You can leave it empty but some features may not work")
+	s += "\n\n" + dimGrayForeground.Render("You can leave it empty, but some features may not work")
 
 	return s
 }

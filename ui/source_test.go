@@ -43,3 +43,19 @@ func TestSourceHandleEnterKeyAcceptsValidAlbumURL(t *testing.T) {
 	assert.True(t, updated.isProcessing)
 	assert.NotNil(t, cmd)
 }
+
+func TestSourceRenderIncludesURLExamples(t *testing.T) {
+	m := NewSourceModel(nil)
+
+	rendered := m.render()
+
+	for _, example := range []string{
+		"· Track: https://music.yandex.ru/album/1231231/track/12312345",
+		"· Album: https://music.yandex.ru/album/1231231",
+		"· Playlist: https://music.yandex.ru/playlists/4dc94b2f-e96b-2daf-a53c-ce71846901b3",
+		"· Legacy playlist: https://music.yandex.ru/users/username/playlists/12312311",
+		"· Chart: https://music.yandex.ru/chart (or /chart/world)",
+	} {
+		assert.Contains(t, rendered, example)
+	}
+}
