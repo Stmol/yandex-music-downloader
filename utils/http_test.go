@@ -329,7 +329,6 @@ func TestDownloadFileWithContextLogsBadStatus(t *testing.T) {
 
 func TestDownloadFileCancelRemovesTempFile(t *testing.T) {
 	serverStarted := make(chan struct{})
-	serverCanFinish := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("partial"))
@@ -338,7 +337,7 @@ func TestDownloadFileCancelRemovesTempFile(t *testing.T) {
 		}
 
 		close(serverStarted)
-		<-serverCanFinish
+		<-r.Context().Done()
 		_, _ = w.Write([]byte(" content"))
 	}))
 	defer server.Close()
@@ -353,7 +352,6 @@ func TestDownloadFileCancelRemovesTempFile(t *testing.T) {
 
 	<-serverStarted
 	client.Cancel()
-	close(serverCanFinish)
 
 	err := <-errCh
 	assert.Error(t, err)
