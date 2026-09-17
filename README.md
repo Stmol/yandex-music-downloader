@@ -1,6 +1,6 @@
 # Yandex Music Downloader
 
-A GUI application for downloading tracks from the Yandex Music streaming service.
+A TUI application for downloading tracks from the Yandex Music streaming service.
 
 <div align="center">
   <img src="assets/img_download_in_progress.png" title="tracks downloading" alt="tracks downloading" width="100%" />
