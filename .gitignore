@@ -8,4 +8,8 @@ dl_logs.txt
 .DS_Store
 .gocache/
 .superpowers/
-docs/
+
+# Keep public Markdown documentation tracked while ignoring local/generated docs.
+docs/*
+!docs/
+!docs/*.md

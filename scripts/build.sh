@@ -1,55 +1,54 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Exit on error
-set -e
+set -euo pipefail
 
-# Executable file name
 APP_NAME="yamdl"
-
-# Get version from git tag
-VERSION=$(git describe --tags --always)
-
-# Directory for builds
 OUTPUT_DIR="build"
-rm -rf "$OUTPUT_DIR"
+VERSION="${1:-${YAMDL_VERSION:-$(git describe --tags --always)}}"
+
+if [[ -z "$VERSION" ]]; then
+  printf 'Release version must not be empty.\n' >&2
+  exit 2
+fi
+
+rm -rf -- "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
-# Target platforms
-declare -a PLATFORMS=(
-    "linux amd64"
-    "linux arm64" 
-    "windows amd64"
-    "windows arm64"
-    "darwin amd64"
-    "darwin arm64"
+platforms=(
+  'linux amd64'
+  'linux arm64'
+  'windows amd64'
+  'windows arm64'
+  'darwin amd64'
+  'darwin arm64'
 )
 
-# Build for each platform
-for platform in "${PLATFORMS[@]}"; do
-    IFS=' ' read -r GOOS GOARCH <<< "$platform"
-    OUTPUT_NAME="$OUTPUT_DIR/${APP_NAME}"
-    
-    # Add .exe extension for Windows
-    if [ "$GOOS" == "windows" ]; then
-        OUTPUT_NAME+=".exe"
-    fi
-    
-    echo "Building for $GOOS/$GOARCH..."
-    GOOS=$GOOS GOARCH=$GOARCH go build -o "$OUTPUT_NAME" ./cmd/yamdl
-    
-    # Zip archive
-    ZIP_NAME="$OUTPUT_DIR/${APP_NAME}_${VERSION}_${GOOS}_${GOARCH}.zip"
-    ZIP_NAME="${ZIP_NAME// /_}"
+for platform in "${platforms[@]}"; do
+  read -r goos goarch <<< "$platform"
+  binary_path="$OUTPUT_DIR/$APP_NAME"
+  if [[ "$goos" == windows ]]; then
+    binary_path+='.exe'
+  fi
 
-    zip -j "$ZIP_NAME" "$OUTPUT_NAME"
-    echo "Created archive: $ZIP_NAME"
+  printf 'Building %s/%s (%s)\n' "$goos" "$goarch" "$VERSION"
+  GOOS="$goos" GOARCH="$goarch" go build \
+    -trimpath \
+    -ldflags "-s -w -X ya-music/internal/version.Version=$VERSION" \
+    -o "$binary_path" \
+    ./cmd/yamdl
 
-    # Remove binary after archiving
-    rm "$OUTPUT_NAME"
-    echo "Removed binary: $OUTPUT_NAME"
+  archive_path="$OUTPUT_DIR/${APP_NAME}_${VERSION}_${goos}_${goarch}.zip"
+  zip -j -q "$archive_path" "$binary_path"
+  rm "$binary_path"
 done
 
-echo "Done"
+(
+  cd "$OUTPUT_DIR"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum ./*.zip > SHA256SUMS
+  else
+    shasum -a 256 ./*.zip > SHA256SUMS
+  fi
+)
 
-unset GOOS
-unset GOARCH
+printf 'Created %s archives and SHA256SUMS in %s\n' "${#platforms[@]}" "$OUTPUT_DIR"

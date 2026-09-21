@@ -31,6 +31,7 @@ A TUI application for downloading tracks from the Yandex Music streaming service
 -   Extract the archive to any directory you prefer
 -   For Linux and macOS, make the binary executable: `chmod +x yamdl`
 -   Launch the application from the terminal: `./yamdl`
+-   Check the installed binary version: `./yamdl --version`
 -   Optional: set a download timeout in seconds: `./yamdl --timeout 180`
 -   Optional: skip cover download and embedding to save time and traffic: `./yamdl --skip-cover=true`
 -   Optional: set a default download directory via environment variable: `export YAMDL_DOWNLOAD_DIR="/path/to/music"`
@@ -42,6 +43,7 @@ Run the application from the command package:
 ```bash
 go run ./cmd/yamdl
 go build ./cmd/yamdl
+bash scripts/verify.sh
 ```
 
 Run the complete test suite with:
@@ -56,7 +58,7 @@ Use the `download` subcommand to fetch a track, album, playlist, or chart withou
 
 ```bash
 ./yamdl download \
-  --token y0_AgAAAAB3kL9pQw7mX2dR8nV5cT1aE6zF \
+  --token TOKEN \
   --link https://music.yandex.ru/album/10733135 \
   --format mp3 \
   --output ./downloads
@@ -191,4 +193,4 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 
 ## License
 
-Stay golden and don't be shady. Peace ✌️
+This project is licensed under the MIT License. See [LICENSE](LICENSE).

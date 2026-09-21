@@ -533,14 +533,6 @@ func mdatPayload(t *testing.T, path string) []byte {
 	return append([]byte(nil), data[mdat.start+mdat.headerSize:mdat.end]...)
 }
 
-func findMP4AtomFromFile(path string, target string) (mp4Atom, bool, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return mp4Atom{}, false, err
-	}
-	return findDirectMP4Atom(data, target)
-}
-
 func findDirectMP4Atom(data []byte, target string) (mp4Atom, bool, error) {
 	for offset := 0; offset < len(data); {
 		atom, err := parseMP4Atom(data, offset)
@@ -553,26 +545,6 @@ func findDirectMP4Atom(data []byte, target string) (mp4Atom, bool, error) {
 		offset = atom.end
 	}
 	return mp4Atom{}, false, nil
-}
-
-func firstMP4ChunkOffset(t *testing.T, path string) uint64 {
-	t.Helper()
-
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	stco, ok, err := findMP4Atom(data, "", "stco")
-	require.NoError(t, err)
-	if ok {
-		payload := data[stco.start+stco.headerSize : stco.end]
-		require.GreaterOrEqual(t, len(payload), 12)
-		return uint64(binary.BigEndian.Uint32(payload[8:12]))
-	}
-	co64, ok, err := findMP4Atom(data, "", "co64")
-	require.NoError(t, err)
-	require.True(t, ok)
-	payload := data[co64.start+co64.headerSize : co64.end]
-	require.GreaterOrEqual(t, len(payload), 16)
-	return binary.BigEndian.Uint64(payload[8:16])
 }
 
 type mp4ChunkOffset struct {

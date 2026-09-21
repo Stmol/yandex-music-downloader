@@ -1,0 +1,19 @@
+title = "YAMDL Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Known non-secret Yandex Music protocol constant and deterministic AES test fixture"
+condition = "AND"
+targetRules = ["generic-api-key"]
+regexTarget = "secret"
+regexes = [
+  '''7tvSmFbyf5hJnIHhCimDDD''',
+  '''p93jhgh689SBReK6ghtw62''',
+  '''00112233445566778899aabbccddeeff''',
+]
+paths = [
+  '''^ya/lossless/lossless\.go$''',
+  '''^ya/lossless/lossless_test\.go$''',
+]
