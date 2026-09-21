@@ -29,6 +29,31 @@ func TestRunDispatchesHelpToTheSelectedCommand(t *testing.T) {
 	}
 }
 
+func TestRunVersionWritesVersionToStdoutWithoutStartingTUI(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	if got := Run([]string{"--version"}, &stdout, &stderr); got != 0 {
+		t.Fatalf("Run(--version) exit code = %d, want 0; stderr = %q", got, stderr.String())
+	}
+	if got, want := stdout.String(), "dev\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if got := stderr.String(); got != "" {
+		t.Fatalf("stderr = %q, want empty", got)
+	}
+}
+
+func TestRunVersionRejectsExtraArguments(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	if got := Run([]string{"--version", "extra"}, &stdout, &stderr); got != 2 {
+		t.Fatalf("Run(--version extra) exit code = %d, want 2", got)
+	}
+	if !strings.Contains(stderr.String(), "--version does not accept arguments") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestIsKnownProblematicTerm(t *testing.T) {
 	tests := []struct {
 		name string

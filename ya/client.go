@@ -237,11 +237,11 @@ func (c *Client) fetchPlaylist(url string) (*model.Playlist, error) {
 
 func (c *Client) UsersPlaylists(ids string) ([]model.Playlist, error) {
 	if c.userUID == 0 {
-		return nil, fmt.Errorf("This API required user authorization")
+		return nil, fmt.Errorf("this API requires user authorization")
 	}
 
 	if len(ids) < 1 {
-		return nil, fmt.Errorf("You must specify playlist ids more then one")
+		return nil, fmt.Errorf("you must specify more than one playlist id")
 	}
 
 	params := url.Values{}

@@ -47,11 +47,7 @@ func (tag *PlaylistTag) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	*tag = PlaylistTag{
-		ID:    raw.ID,
-		Value: raw.Value,
-		Name:  raw.Name,
-	}
+	*tag = PlaylistTag(raw)
 
 	if tag.Value == "" {
 		tag.Value = tag.Name

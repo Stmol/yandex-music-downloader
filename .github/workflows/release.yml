@@ -3,32 +3,138 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: Build and publish release
+  verify:
+    name: Verify release source
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      # v4.2.2
+      - name: Checkout full history
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
 
+      # v5.5.0
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run canonical verifier
+        run: bash scripts/verify.sh
+
+  security:
+    name: Secret scan
+    runs-on: ubuntu-latest
+
+    steps:
+      # v4.2.2
+      - name: Checkout full history
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned Gitleaks CLI
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            --output "$archive"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+
+      - name: Scan Git history
+        run: |
+          "$RUNNER_TEMP/gitleaks" git . --redact --no-banner
+
+  build:
+    name: Build and validate release artifacts
+    needs:
+      - verify
+      - security
+    runs-on: ubuntu-latest
+
+    steps:
+      # v4.2.2
+      - name: Checkout full history
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      # v5.5.0
+      - name: Setup Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Build release artifacts
-        run: bash scripts/build.sh
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: bash scripts/build.sh "$TAG_NAME"
 
-      - name: Extract release notes from changelog
+      - name: Validate release artifacts
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: bash scripts/release-validate.sh "$TAG_NAME" build CHANGELOG.md
+
+      - name: Smoke-test Linux CLI
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          unzip -q "build/yamdl_${TAG_NAME}_linux_amd64.zip" -d "$RUNNER_TEMP/yamdl-smoke"
+          chmod +x "$RUNNER_TEMP/yamdl-smoke/yamdl"
+          "$RUNNER_TEMP/yamdl-smoke/yamdl" --help >/dev/null
+          test "$("$RUNNER_TEMP/yamdl-smoke/yamdl" --version)" = "$TAG_NAME"
+          "$RUNNER_TEMP/yamdl-smoke/yamdl" download --help >/dev/null
+          if [[ -f internal/cli/export.go ]]; then
+            "$RUNNER_TEMP/yamdl-smoke/yamdl" export --help >/dev/null
+          fi
+
+      # v4.6.2
+      - name: Upload validated artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-artifacts
+          path: |
+            build/*.zip
+            build/SHA256SUMS
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      # v4.2.2
+      - name: Checkout changelog
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # v4.6.2
+      - name: Download validated artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-artifacts
+          path: build
+
+      - name: Extract release notes
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
@@ -37,17 +143,13 @@ jobs:
             capture && /^## / { exit }
             capture { print }
           ' CHANGELOG.md > release_notes.md
-
-          if [ ! -s release_notes.md ]; then
-            echo "Failed to extract release notes for $TAG_NAME from CHANGELOG.md" >&2
-            exit 1
-          fi
+          test -s release_notes.md
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG_NAME" build/*.zip \
+          gh release create "$TAG_NAME" build/*.zip build/SHA256SUMS \
             --title "$TAG_NAME" \
             --notes-file release_notes.md
