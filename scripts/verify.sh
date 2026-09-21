@@ -54,6 +54,20 @@ check_assets() {
       return 1
     fi
   done
+
+  local skill
+  local skills=(
+    .agents/skills/yamdl/SKILL.md
+    .agents/skills/bugs/SKILL.md
+    .agents/skills/release-flow/SKILL.md
+  )
+
+  for skill in "${skills[@]}"; do
+    if [[ ! -f "$skill" || -L "$skill" ]]; then
+      printf 'Skill must be a regular file: %s\n' "$skill" >&2
+      return 1
+    fi
+  done
 }
 
 check_shell_syntax() {
