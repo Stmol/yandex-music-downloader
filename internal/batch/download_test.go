@@ -157,10 +157,12 @@ func TestRunWritesTracksIntoLayoutDirectories(t *testing.T) {
 	events := collect(Run(Config{
 		Client:    client,
 		OutputDir: outputDir,
-		Layout: config.Layout{
-			ByArtist:     true,
-			ByAlbum:      true,
-			AlbumDirMask: "{year} - {title}",
+		Settings: config.Config{
+			Layout: config.Layout{
+				ByArtist:     true,
+				ByAlbum:      true,
+				AlbumDirMask: "{year} - {title}",
+			},
 		},
 		FolderArtist: "ABBA",
 		Tracks: []model.Track{
@@ -194,11 +196,13 @@ func TestRunWritesPlaylistTracksIntoFlatDirectory(t *testing.T) {
 	events := collect(Run(Config{
 		Client:    client,
 		OutputDir: outputDir,
-		Layout: config.Layout{
-			ByArtist:     true,
-			ByAlbum:      true,
-			ByPlaylist:   true,
-			AlbumDirMask: "{year} - {title}",
+		Settings: config.Config{
+			Layout: config.Layout{
+				ByArtist:     true,
+				ByAlbum:      true,
+				ByPlaylist:   true,
+				AlbumDirMask: "{year} - {title}",
+			},
 		},
 		FolderArtist:   "ABBA",
 		FolderPlaylist: "Favorites",
@@ -232,7 +236,9 @@ func TestRunSuffixesFilenameCollisionsOnlyInsideTheSameDirectory(t *testing.T) {
 	client := &recordingClient{}
 	events := collect(Run(Config{
 		Client: client,
-		Layout: config.Layout{ByAlbum: true, AlbumDirMask: "{title}"},
+		Settings: config.Config{
+			Layout: config.Layout{ByAlbum: true, AlbumDirMask: "{title}"},
+		},
 		Tracks: []model.Track{
 			{
 				ID:        "1",
@@ -262,7 +268,9 @@ func TestRunPassesMaskedFilenameBaseAndSuffixesMaskCollisions(t *testing.T) {
 	client := &recordingClient{}
 	events := collect(Run(Config{
 		Client: client,
-		Layout: config.Layout{TrackFileMask: "{nn} - {title}"},
+		Settings: config.Config{
+			Layout: config.Layout{TrackFileMask: "{nn} - {title}"},
+		},
 		Tracks: []model.Track{
 			{
 				ID:        "1",

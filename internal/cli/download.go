@@ -98,7 +98,7 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 			Tracks:         tracks,
 			OutputDir:      options.output,
 			Context:        batchContext,
-			Layout:         cfg.Layout,
+			Settings:       cfg,
 			FolderArtist:   preflight.folderArtist,
 			FolderPlaylist: preflight.folderPlaylist,
 			Options: ya.DownloadOptions{

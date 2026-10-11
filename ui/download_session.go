@@ -38,13 +38,14 @@ type DownloadSession struct {
 	options        ya.DownloadOptions
 	outputDir      string
 	concurrency    int
-	layout         config.Layout
+	settings       config.Config
 	folderArtist   string
 	folderPlaylist string
 }
 
+// SessionConfig passes the YAML settings and the source-derived folder names to the session.
 type SessionConfig struct {
-	Layout         config.Layout
+	Settings       config.Config
 	FolderArtist   string
 	FolderPlaylist string
 }
@@ -70,7 +71,7 @@ func NewDownloadSession(
 		options:        options,
 		outputDir:      outputDir,
 		concurrency:    maxConcurrentDownloads,
-		layout:         cfg.Layout,
+		settings:       cfg.Settings,
 		folderArtist:   cfg.FolderArtist,
 		folderPlaylist: cfg.FolderPlaylist,
 	}
@@ -143,7 +144,7 @@ func (s *DownloadSession) runTrack(
 	events <- DownloadSessionEvent{Progress: item}
 
 	dir := layout.TrackOutputDir(s.outputDir, *item.track, layout.Options{
-		Layout:         s.layout,
+		Layout:         s.settings.Layout,
 		FolderArtist:   s.folderArtist,
 		FolderPlaylist: s.folderPlaylist,
 	})
@@ -160,7 +161,7 @@ func (s *DownloadSession) runTrack(
 	}
 
 	options := s.options
-	options.FilenameBase = layout.TrackFilenameBase(*item.track, s.layout.TrackFileMask)
+	options.FilenameBase = layout.TrackFilenameBase(*item.track, s.settings.Layout.TrackFileMask)
 	filePath, err := s.client.DownloadTrackWithOptions(*item.track, dir, options)
 	if err != nil {
 		item.status = TrackStatusError

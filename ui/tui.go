@@ -121,15 +121,16 @@ func (m Model) View() tea.View {
 }
 
 func StartUi(client *ya.Client, options ...ya.DownloadOptions) Model {
-	return StartUiWithLayout(client, downloadOptionsOrDefault(options), config.Layout{})
+	return StartUiWithConfig(client, downloadOptionsOrDefault(options), config.Config{})
 }
 
-func StartUiWithLayout(client *ya.Client, download ya.DownloadOptions, layout config.Layout) Model {
+// StartUiWithConfig starts the TUI with the YAML settings; each feature reads its own field from settings.
+func StartUiWithConfig(client *ya.Client, download ya.DownloadOptions, settings config.Config) Model {
 	return Model{
 		initState:     UiStateTokenInput,
 		tokenModel:    NewTokenModel(client),
 		sourceModel:   NewSourceModel(client),
-		downloadModel: NewDownloadModelWithLayout(client, download, layout),
+		downloadModel: NewDownloadModelWithConfig(client, download, settings),
 	}
 }
 
