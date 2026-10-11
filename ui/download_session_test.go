@@ -53,10 +53,12 @@ func TestDownloadSessionUsesLayoutDirectory(t *testing.T) {
 		ya.DownloadOptions{},
 		outputDir,
 		SessionConfig{
-			Layout: config.Layout{
-				ByArtist:     true,
-				ByAlbum:      true,
-				AlbumDirMask: "{year} - {title}",
+			Settings: config.Config{
+				Layout: config.Layout{
+					ByArtist:     true,
+					ByAlbum:      true,
+					AlbumDirMask: "{year} - {title}",
+				},
 			},
 			FolderArtist: "ABBA",
 		},
@@ -94,11 +96,13 @@ func TestDownloadSessionUsesFlatPlaylistDirectory(t *testing.T) {
 		ya.DownloadOptions{},
 		outputDir,
 		SessionConfig{
-			Layout: config.Layout{
-				ByArtist:     true,
-				ByAlbum:      true,
-				ByPlaylist:   true,
-				AlbumDirMask: "{year} - {title}",
+			Settings: config.Config{
+				Layout: config.Layout{
+					ByArtist:     true,
+					ByAlbum:      true,
+					ByPlaylist:   true,
+					AlbumDirMask: "{year} - {title}",
+				},
 			},
 			FolderArtist:   "ABBA",
 			FolderPlaylist: "Favorites",
@@ -137,7 +141,9 @@ func TestDownloadSessionPassesMaskedFilenameBase(t *testing.T) {
 		ya.DownloadOptions{},
 		outputDir,
 		SessionConfig{
-			Layout: config.Layout{TrackFileMask: "{nn} - {title}"},
+			Settings: config.Config{
+				Layout: config.Layout{TrackFileMask: "{nn} - {title}"},
+			},
 		},
 	)
 

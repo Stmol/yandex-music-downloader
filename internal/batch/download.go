@@ -59,7 +59,7 @@ type Config struct {
 	Options        ya.DownloadOptions
 	Concurrency    int
 	Context        context.Context
-	Layout         config.Layout
+	Settings       config.Config // settings from YAML; each feature reads its own field
 	FolderArtist   string
 	FolderPlaylist string
 }
@@ -81,7 +81,7 @@ func Run(config Config) <-chan Event {
 
 		seenIDs := make(map[string]struct{}, len(config.Tracks))
 		dirs := trackOutputDirs(config)
-		suffixes := filenameSuffixes(config.Tracks, dirs, config.Layout.TrackFileMask)
+		suffixes := filenameSuffixes(config.Tracks, dirs, config.Settings.Layout.TrackFileMask)
 		sem := make(chan struct{}, concurrency)
 		var workers sync.WaitGroup
 
@@ -121,7 +121,7 @@ func Run(config Config) <-chan Event {
 
 			options := config.Options
 			options.FilenameSuffix = suffixes[position]
-			options.FilenameBase = layout.TrackFilenameBase(track, config.Layout.TrackFileMask)
+			options.FilenameBase = layout.TrackFilenameBase(track, config.Settings.Layout.TrackFileMask)
 			dir := dirs[position]
 
 			workers.Add(1)
@@ -175,7 +175,7 @@ func Run(config Config) <-chan Event {
 func trackOutputDirs(config Config) []string {
 	dirs := make([]string, len(config.Tracks))
 	opts := layout.Options{
-		Layout:         config.Layout,
+		Layout:         config.Settings.Layout,
 		FolderArtist:   config.FolderArtist,
 		FolderPlaylist: config.FolderPlaylist,
 	}

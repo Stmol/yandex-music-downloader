@@ -41,7 +41,7 @@ func runTUI(args []string, stderr io.Writer) int {
 	defer signal.Stop(sigCh)
 
 	downloadOptions := ya.DownloadOptions{SkipCover: options.skipCover}
-	prog := tea.NewProgram(ui.StartUiWithLayout(client, downloadOptions, cfg.Layout))
+	prog := tea.NewProgram(ui.StartUiWithConfig(client, downloadOptions, cfg))
 
 	go func() {
 		sig := <-sigCh

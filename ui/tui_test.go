@@ -59,19 +59,22 @@ func TestInputScreensUseSharedBrandHeader(t *testing.T) {
 	assert.Contains(t, sourceView, "Paste a Yandex Music link")
 }
 
-func TestStartUiWithLayoutStoresLayout(t *testing.T) {
+func TestStartUiWithConfigStoresSettings(t *testing.T) {
 	client := ya.NewClient(utils.NewHttpClient())
-	model := StartUiWithLayout(client, ya.DownloadOptions{}, config.Layout{
-		ByArtist:      true,
-		ByAlbum:       true,
-		AlbumDirMask:  "{year} - {title}",
-		TrackFileMask: "{nn} - {title}",
+	model := StartUiWithConfig(client, ya.DownloadOptions{}, config.Config{
+		Layout: config.Layout{
+			ByArtist:      true,
+			ByAlbum:       true,
+			AlbumDirMask:  "{year} - {title}",
+			TrackFileMask: "{nn} - {title}",
+		},
 	})
 
-	assert.True(t, model.downloadModel.layout.ByArtist)
-	assert.True(t, model.downloadModel.layout.ByAlbum)
-	assert.Equal(t, "{year} - {title}", model.downloadModel.layout.AlbumDirMask)
-	assert.Equal(t, "{nn} - {title}", model.downloadModel.layout.TrackFileMask)
+	settings := model.downloadModel.settings
+	assert.True(t, settings.Layout.ByArtist)
+	assert.True(t, settings.Layout.ByAlbum)
+	assert.Equal(t, "{year} - {title}", settings.Layout.AlbumDirMask)
+	assert.Equal(t, "{nn} - {title}", settings.Layout.TrackFileMask)
 }
 
 func TestWindowSizeMsgIsStoredAndAppliedToChildModels(t *testing.T) {

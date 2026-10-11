@@ -161,7 +161,7 @@ type DownloadModel struct {
 	// External dependencies.
 	client          *ya.Client
 	downloadOptions ya.DownloadOptions
-	layout          config.Layout
+	settings        config.Config // settings from YAML; each feature reads its own field
 	folderArtist    string
 	folderPlaylist  string
 
@@ -200,10 +200,10 @@ type DownloadModel struct {
 }
 
 func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) DownloadModel {
-	return NewDownloadModelWithLayout(client, downloadOptionsOrDefault(options), config.Layout{})
+	return NewDownloadModelWithConfig(client, downloadOptionsOrDefault(options), config.Config{})
 }
 
-func NewDownloadModelWithLayout(client *ya.Client, options ya.DownloadOptions, layout config.Layout) DownloadModel {
+func NewDownloadModelWithConfig(client *ya.Client, options ya.DownloadOptions, settings config.Config) DownloadModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = spinnerStyle
@@ -235,7 +235,7 @@ func NewDownloadModelWithLayout(client *ya.Client, options ya.DownloadOptions, l
 	return DownloadModel{
 		client:            client,
 		downloadOptions:   options,
-		layout:            layout,
+		settings:          settings,
 		spinner:           sp,
 		progress:          p,
 		trackList:         l,
@@ -625,16 +625,14 @@ func (m DownloadModel) startDownloadSession() tea.Cmd {
 	logger := downloadLogger(client)
 	options := m.downloadOptions
 	targetDir := utils.ResolveOutputDir()
-	layoutCfg := m.layout
-	folderArtist := m.folderArtist
-	folderPlaylist := m.folderPlaylist
+	sessionConfig := SessionConfig{
+		Settings:       m.settings,
+		FolderArtist:   m.folderArtist,
+		FolderPlaylist: m.folderPlaylist,
+	}
 
 	return func() tea.Msg {
-		session := NewDownloadSession(client, logger, options, targetDir, SessionConfig{
-			Layout:         layoutCfg,
-			FolderArtist:   folderArtist,
-			FolderPlaylist: folderPlaylist,
-		})
+		session := NewDownloadSession(client, logger, options, targetDir, sessionConfig)
 		return downloadSessionStartedMsg{events: session.Run(progress)}
 	}
 }
