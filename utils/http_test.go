@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+	"ya-music/ya/model"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -444,4 +445,44 @@ func TestDownloadFileWithContextRedactsSignedURL(t *testing.T) {
 	assert.Contains(t, logs.String(), "url="+SanitizeURL(signedURL))
 	assert.NotContains(t, logs.String(), "token=secret")
 	assert.NotContains(t, logs.String(), "/signed-part/ts-value/path/to/file.mp3")
+}
+
+func TestGetKeepsStatusForJSONAPIErrors(t *testing.T) {
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"error":{"name":"temporary-error","message":"Try again later"}}`))
+			}))
+			defer server.Close()
+
+			_, err := NewHttpClient().Get(server.URL)
+
+			require.Error(t, err)
+			assert.True(t, IsRetryableHTTPError(err))
+			assert.EqualError(t, err, "Try again later")
+			var httpErr *HTTPStatusError
+			require.ErrorAs(t, err, &httpErr)
+			assert.Equal(t, status, httpErr.StatusCode)
+			var apiErr *model.ErrorResponse
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, "temporary-error", apiErr.APIError.Name)
+		})
+	}
+}
+
+func TestGetDoesNotRetryJSONClientErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"name":"not-found","message":"Album not found"}}`))
+	}))
+	defer server.Close()
+
+	_, err := NewHttpClient().Get(server.URL)
+
+	require.Error(t, err)
+	assert.False(t, IsRetryableHTTPError(err))
+	assert.EqualError(t, err, "Album not found")
 }

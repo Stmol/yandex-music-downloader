@@ -186,9 +186,13 @@ func (c *HttpClient) sendRequestWithHeaders(reqCtx RequestLogContext, method, ur
 	var errorResp model.ErrorResponse
 	if err := json.Unmarshal(body, &errorResp); err == nil && errorResp.IsError() {
 		c.logRequest(slog.LevelError, reqCtx, "api returned error payload", method, url,
+			"status_code", resp.StatusCode,
 			"api_error", errorResp.APIError.Name,
 			"api_message", errorResp.APIError.Message,
 		)
+		if resp.StatusCode >= http.StatusBadRequest {
+			return nil, &HTTPStatusError{StatusCode: resp.StatusCode, APIError: &errorResp}
+		}
 		return nil, &errorResp
 	}
 
