@@ -486,3 +486,36 @@ func TestGetDoesNotRetryJSONClientErrors(t *testing.T) {
 	assert.False(t, IsRetryableHTTPError(err))
 	assert.EqualError(t, err, "Album not found")
 }
+
+func TestHTTPStatusErrorEscapesTerminalControlSequences(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("Captcha required \x1b[2J\x1b[HInjected screen"))
+	}))
+	defer server.Close()
+
+	_, err := NewHttpClient().Get(server.URL)
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "\x1b")
+	assert.Equal(t, `HTTP 429: Captcha required \x1b[2J\x1b[HInjected screen`, err.Error())
+}
+
+func TestHTTPStatusErrorEscapesControlSequencesInAPIErrors(t *testing.T) {
+	err := &HTTPStatusError{
+		StatusCode: http.StatusServiceUnavailable,
+		APIError: &model.ErrorResponse{APIError: struct {
+			Name    string `json:"name"`
+			Message string `json:"message"`
+		}{Name: "unavailable", Message: "Down\x1b[31m for\nmaintenance"}},
+	}
+
+	assert.Equal(t, `Down\x1b[31m for maintenance`, err.Error())
+}
+
+func TestHTTPStatusErrorKeepsOrdinaryMessagesReadable(t *testing.T) {
+	err := newHTTPStatusError(http.StatusBadGateway, []byte("  Bad gateway: upstream is down  "))
+
+	assert.Equal(t, "HTTP 502: Bad gateway: upstream is down", err.Error())
+}
