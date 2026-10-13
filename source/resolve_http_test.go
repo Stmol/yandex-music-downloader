@@ -87,11 +87,35 @@ func TestResolveArtistRetriesJSONRateLimitAndServerErrors(t *testing.T) {
 		albumCalls: map[string]int{},
 	}
 
-	tracks, err := Resolve(newResolverClient(t, api), "https://music.yandex.ru/artist/170660")
+	result, err := Resolve(newResolverClient(t, api), "https://music.yandex.ru/artist/170660")
 
 	require.NoError(t, err)
-	require.Len(t, tracks, 2)
-	assert.ElementsMatch(t, []string{"10", "20"}, []string{tracks[0].ID.String(), tracks[1].ID.String()})
+	require.Len(t, result.Tracks, 2)
+	assert.ElementsMatch(t, []string{"10", "20"}, []string{result.Tracks[0].ID.String(), result.Tracks[1].ID.String()})
 	assert.Equal(t, 2, api.albumCalls["1"])
 	assert.Equal(t, 2, api.albumCalls["2"])
+}
+
+func TestResolveArtistReportsAlbumThatExhaustsRetries(t *testing.T) {
+	withoutAlbumRetryBackoff(t)
+	unavailable := http.StatusServiceUnavailable
+	api := &fakeMusicAPI{
+		albumFailures: map[string][]int{
+			"2": {unavailable, unavailable, unavailable, unavailable},
+		},
+		albumCalls: map[string]int{},
+	}
+
+	result, err := Resolve(newResolverClient(t, api), "https://music.yandex.ru/artist/170660")
+
+	require.NoError(t, err)
+	require.Len(t, result.Tracks, 1)
+	assert.Equal(t, "10", result.Tracks[0].ID.String())
+	require.Len(t, result.SkippedAlbums, 1)
+	skipped := result.SkippedAlbums[0]
+	assert.Equal(t, "2", skipped.ID)
+	assert.Equal(t, "SOS", skipped.Title)
+	assert.EqualError(t, skipped.Err, "Try again later")
+	assert.True(t, utils.IsRetryableHTTPError(skipped.Err))
+	assert.Equal(t, artistAlbumFetchAttempts, api.albumCalls["2"])
 }

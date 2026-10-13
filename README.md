@@ -67,7 +67,7 @@ Use the `download` subcommand to fetch a track, album, artist discography, playl
 Available options:
 
 - `--token <token>` is required. Provide your Yandex Music OAuth token.
-- `--link <url>` is required. Provide a Yandex Music track, album, artist, playlist, or chart URL.
+- `--link <url>` is required. Provide a Yandex Music track, album, artist, playlist, or chart URL. For an artist, an album that cannot be loaded after several retries is skipped with a warning on stderr, and the summary shows `Albums not loaded: N`.
 - `--format <mp3|flac>` selects MP3 or lossless download; MP3 is the default.
 - `--output <directory>` selects the destination directory (defaults to `YAMDL_DOWNLOAD_DIR` if set, or `./downloads`). Passing this flag overrides the environment variable.
 - `--timeout <seconds>` limits the download time for each audio file. Use `0`, the default, to disable the limit.
@@ -114,7 +114,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 ### 3. Copy Track Link
 
 -   Navigate to the Yandex Music web interface and select `Share` -> `Copy link` for any track, album, artist, or playlist
--   Artist pages such as `https://music.yandex.ru/artist/170660` download the artist's own albums and singles (not compilation appearances)
+-   Artist pages such as `https://music.yandex.ru/artist/170660` download the artist's own albums and singles (not compilation appearances). An album that cannot be loaded after several retries is skipped, and the download screen lists it in red above the track list
 -   Chart pages such as `https://music.yandex.ru/chart` and `https://music.yandex.ru/chart/world` can also be pasted directly
 -   This will copy the URL to your clipboard
 

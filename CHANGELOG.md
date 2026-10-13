@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- add artist page URLs to the TUI and `yamdl download`: an artist link downloads the artist's own albums and singles, retrying album requests on HTTP 429 and 5xx responses and skipping an album that keeps failing
+- add artist page URLs to the TUI and `yamdl download`: an artist link downloads the artist's own albums and singles, retrying album requests on HTTP 429 and 5xx responses; an album that keeps failing is skipped and reported as a warning in the CLI and the TUI
 
 ## v1.13.3 - 2026-09-16
 

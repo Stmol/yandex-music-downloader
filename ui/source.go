@@ -14,7 +14,8 @@ import (
 
 type (
 	SourceSubmitMsg struct {
-		Tracks []model.Track
+		Tracks        []model.Track
+		SkippedAlbums []source.SkippedAlbum
 	}
 
 	URLHandleErrorMsg string
@@ -115,11 +116,11 @@ func (m SourceModel) handleEnterKey() (SourceModel, tea.Cmd) {
 
 func (m *SourceModel) handleURL(ref *source.Ref) tea.Cmd {
 	return func() tea.Msg {
-		tracks, err := source.ResolveRef(m.client, ref)
+		result, err := source.ResolveRef(m.client, ref)
 		if err != nil {
 			return URLHandleErrorMsg(err.Error())
 		}
-		return SourceSubmitMsg{Tracks: tracks}
+		return SourceSubmitMsg{Tracks: result.Tracks, SkippedAlbums: result.SkippedAlbums}
 	}
 }
 

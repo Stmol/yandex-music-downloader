@@ -84,11 +84,11 @@ func TestResolveAlbumFlattensVolumes(t *testing.T) {
 		},
 	}
 
-	tracks, err := Resolve(client, "https://music.yandex.ru/album/123")
+	result, err := Resolve(client, "https://music.yandex.ru/album/123")
 	require.NoError(t, err)
-	require.Len(t, tracks, 2)
-	assert.Equal(t, "1", tracks[0].ID.String())
-	assert.Equal(t, "2", tracks[1].ID.String())
+	require.Len(t, result.Tracks, 2)
+	assert.Equal(t, "1", result.Tracks[0].ID.String())
+	assert.Equal(t, "2", result.Tracks[1].ID.String())
 }
 
 func TestResolveLegacyPlaylistExtractsTracks(t *testing.T) {
@@ -100,10 +100,10 @@ func TestResolveLegacyPlaylistExtractsTracks(t *testing.T) {
 		},
 	}
 
-	tracks, err := Resolve(client, "https://music.yandex.ru/users/user/playlists/99")
+	result, err := Resolve(client, "https://music.yandex.ru/users/user/playlists/99")
 	require.NoError(t, err)
-	require.Len(t, tracks, 1)
-	assert.Equal(t, "10", tracks[0].ID.String())
+	require.Len(t, result.Tracks, 1)
+	assert.Equal(t, "10", result.Tracks[0].ID.String())
 }
 
 func TestResolveUUIDPlaylistExtractsTracks(t *testing.T) {
@@ -116,10 +116,10 @@ func TestResolveUUIDPlaylistExtractsTracks(t *testing.T) {
 		},
 	}
 
-	tracks, err := Resolve(client, "https://music.yandex.ru/playlists/"+playlistUUID)
+	result, err := Resolve(client, "https://music.yandex.ru/playlists/"+playlistUUID)
 	require.NoError(t, err)
-	require.Len(t, tracks, 1)
-	assert.Equal(t, "20", tracks[0].ID.String())
+	require.Len(t, result.Tracks, 1)
+	assert.Equal(t, "20", result.Tracks[0].ID.String())
 }
 
 func TestResolveChartExtractsTracks(t *testing.T) {
@@ -131,10 +131,10 @@ func TestResolveChartExtractsTracks(t *testing.T) {
 		},
 	}
 
-	tracks, err := Resolve(client, "https://music.yandex.ru/chart/world")
+	result, err := Resolve(client, "https://music.yandex.ru/chart/world")
 	require.NoError(t, err)
-	require.Len(t, tracks, 1)
-	assert.Equal(t, "30", tracks[0].ID.String())
+	require.Len(t, result.Tracks, 1)
+	assert.Equal(t, "30", result.Tracks[0].ID.String())
 }
 
 func TestResolvePlaylistLoadsTracks(t *testing.T) {
@@ -168,17 +168,17 @@ func TestResolveRejectsInvalidURL(t *testing.T) {
 func TestResolveReturnsEmptyAlbumWithoutError(t *testing.T) {
 	client := &fakeSourceClient{album: &model.Album{}}
 
-	tracks, err := Resolve(client, "https://music.yandex.ru/album/123")
+	result, err := Resolve(client, "https://music.yandex.ru/album/123")
 	require.NoError(t, err)
-	assert.Empty(t, tracks)
+	assert.Empty(t, result.Tracks)
 }
 
 func TestResolveReturnsEmptyPlaylistWithoutError(t *testing.T) {
 	client := &fakeSourceClient{legacyPlaylist: &model.Playlist{}}
 
-	tracks, err := Resolve(client, "https://music.yandex.ru/users/user/playlists/99")
+	result, err := Resolve(client, "https://music.yandex.ru/users/user/playlists/99")
 	require.NoError(t, err)
-	assert.Empty(t, tracks)
+	assert.Empty(t, result.Tracks)
 }
 
 func TestResolvePropagatesClientErrors(t *testing.T) {
@@ -214,14 +214,14 @@ func TestResolveArtistFlattensAlbums(t *testing.T) {
 		},
 	}
 
-	tracks, err := Resolve(client, "https://music.yandex.ru/artist/170660")
+	result, err := Resolve(client, "https://music.yandex.ru/artist/170660")
 	require.NoError(t, err)
-	require.Len(t, tracks, 2)
-	assert.Equal(t, "10", tracks[0].ID.String())
-	assert.Equal(t, 1976, tracks[0].Albums[0].Year)
-	assert.Equal(t, "Arrival", tracks[0].Albums[0].Title)
-	assert.Equal(t, "20", tracks[1].ID.String())
-	assert.Equal(t, 1975, tracks[1].Albums[0].Year)
+	require.Len(t, result.Tracks, 2)
+	assert.Equal(t, "10", result.Tracks[0].ID.String())
+	assert.Equal(t, 1976, result.Tracks[0].Albums[0].Year)
+	assert.Equal(t, "Arrival", result.Tracks[0].Albums[0].Title)
+	assert.Equal(t, "20", result.Tracks[1].ID.String())
+	assert.Equal(t, 1975, result.Tracks[1].Albums[0].Year)
 }
 
 func TestResolveArtistReturnsEmptyDiscographyWithoutError(t *testing.T) {
@@ -229,9 +229,9 @@ func TestResolveArtistReturnsEmptyDiscographyWithoutError(t *testing.T) {
 		directAlbums: []model.Album{},
 	}
 
-	tracks, err := Resolve(client, "https://music.yandex.ru/artist/170660")
+	result, err := Resolve(client, "https://music.yandex.ru/artist/170660")
 	require.NoError(t, err)
-	assert.Empty(t, tracks)
+	assert.Empty(t, result.Tracks)
 }
 
 func TestResolveArtistPropagatesAlbumLoadError(t *testing.T) {
@@ -265,10 +265,10 @@ func TestResolveArtistRetriesRetryableAlbumError(t *testing.T) {
 		},
 	}
 
-	tracks, err := Resolve(client, "https://music.yandex.ru/artist/170660")
+	result, err := Resolve(client, "https://music.yandex.ru/artist/170660")
 	require.NoError(t, err)
-	require.Len(t, tracks, 1)
-	assert.Equal(t, "10", tracks[0].ID.String())
+	require.Len(t, result.Tracks, 1)
+	assert.Equal(t, "10", result.Tracks[0].ID.String())
 }
 
 func TestResolveArtistSkipsAlbumThatKeepsFailing(t *testing.T) {
@@ -299,8 +299,18 @@ func TestResolveArtistSkipsAlbumThatKeepsFailing(t *testing.T) {
 		},
 	}
 
-	tracks, err := Resolve(client, "https://music.yandex.ru/artist/170660")
+	result, err := Resolve(client, "https://music.yandex.ru/artist/170660")
 	require.NoError(t, err)
-	require.Len(t, tracks, 1)
-	assert.Equal(t, "20", tracks[0].ID.String())
+	require.Len(t, result.Tracks, 1)
+	assert.Equal(t, "20", result.Tracks[0].ID.String())
+	require.Len(t, result.SkippedAlbums, 1)
+	assert.Equal(t, "1", result.SkippedAlbums[0].ID)
+	assert.Equal(t, "Arrival", result.SkippedAlbums[0].Title)
+	assert.ErrorContains(t, result.SkippedAlbums[0].Err, "HTTP 429")
+}
+
+func TestSkippedAlbumLabelQuotesTitleOrFallsBackToID(t *testing.T) {
+	assert.Equal(t, `"Arrival"`, SkippedAlbum{ID: "1", Title: "Arrival"}.Label())
+	assert.Equal(t, `"Bad\x1b[2J"`, SkippedAlbum{ID: "2", Title: "Bad\x1b[2J"}.Label())
+	assert.Equal(t, "#3", SkippedAlbum{ID: "3", Title: "  "}.Label())
 }

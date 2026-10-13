@@ -2,6 +2,7 @@ package source
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,16 +31,42 @@ type Client interface {
 	Chart(region string) (*model.Playlist, error)
 }
 
-func Resolve(client Client, input string) ([]model.Track, error) {
+// Result holds the resolved tracks. For an artist link, SkippedAlbums lists the
+// albums that could not be loaded, so callers can report an incomplete discography.
+type Result struct {
+	Tracks        []model.Track
+	SkippedAlbums []SkippedAlbum
+}
+
+// SkippedAlbum is an album that was left out because it kept failing to load.
+type SkippedAlbum struct {
+	ID    string
+	Title string
+	Err   error
+}
+
+// Label names the album for messages: its quoted title, or its ID when the title is unknown.
+func (a SkippedAlbum) Label() string {
+	if title := strings.TrimSpace(a.Title); title != "" {
+		return strconv.Quote(title)
+	}
+	return "#" + a.ID
+}
+
+func Resolve(client Client, input string) (Result, error) {
 	ref, err := Parse(strings.TrimSpace(input))
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	return ResolveRef(client, ref)
 }
 
-func ResolveRef(client Client, ref *Ref) ([]model.Track, error) {
-	return resolveRef(client, ref)
+func ResolveRef(client Client, ref *Ref) (Result, error) {
+	if ref.Kind == KindArtist {
+		return resolveArtist(client, ref.ArtistID)
+	}
+	tracks, err := resolveRef(client, ref)
+	return Result{Tracks: tracks}, err
 }
 
 func resolvePlaylist(load func() (*model.Playlist, error)) ([]model.Track, error) {
@@ -68,8 +95,6 @@ func resolveRef(client Client, ref *Ref) ([]model.Track, error) {
 			tracks = append(tracks, volume...)
 		}
 		return tracks, nil
-	case KindArtist:
-		return resolveArtist(client, ref.ArtistID)
 	case KindLegacyPlaylist:
 		return resolvePlaylist(func() (*model.Playlist, error) {
 			return client.UsersPlaylist(ref.PlaylistID, ref.Username)
@@ -88,20 +113,24 @@ func resolveRef(client Client, ref *Ref) ([]model.Track, error) {
 }
 
 // resolveArtist returns the tracks of the artist's own albums and singles.
-func resolveArtist(client Client, artistID string) ([]model.Track, error) {
+func resolveArtist(client Client, artistID string) (Result, error) {
 	albums, err := client.ArtistDirectAlbums(artistID)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
-	return collectArtistAlbumTracks(client, albums)
+	tracks, skipped, err := collectArtistAlbumTracks(client, albums)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Tracks: tracks, SkippedAlbums: skipped}, nil
 }
 
 // collectArtistAlbumTracks loads every album with a small concurrency limit.
-// An album that still fails after retries is skipped; the error is returned
-// only when no album could be loaded.
-func collectArtistAlbumTracks(client Client, albums []model.Album) ([]model.Track, error) {
+// An album that still fails after retries is skipped and reported; the error
+// is returned only when no album could be loaded.
+func collectArtistAlbumTracks(client Client, albums []model.Album) ([]model.Track, []SkippedAlbum, error) {
 	if len(albums) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	results := make([][]model.Track, len(albums))
@@ -137,20 +166,18 @@ func collectArtistAlbumTracks(client Client, albums []model.Album) ([]model.Trac
 	wg.Wait()
 
 	var tracks []model.Track
-	var firstErr error
+	var skipped []SkippedAlbum
 	for i, err := range errs {
 		if err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
+			skipped = append(skipped, SkippedAlbum{ID: albums[i].ID.String(), Title: albums[i].Title, Err: err})
 			continue
 		}
 		tracks = append(tracks, results[i]...)
 	}
-	if len(tracks) == 0 && firstErr != nil {
-		return nil, firstErr
+	if len(tracks) == 0 && len(skipped) > 0 {
+		return nil, nil, skipped[0].Err
 	}
-	return tracks, nil
+	return tracks, skipped, nil
 }
 
 // fetchAlbumWithTracks retries rate-limited (429) and server (5xx) responses with backoff.
