@@ -23,7 +23,7 @@ func newHTTPStatusError(statusCode int, body []byte) *HTTPStatusError {
 	if !utf8.ValidString(text) || !isMostlyPrintable(body) {
 		text = ""
 	}
-	text = sanitizeTerminalText(text)
+	text = SanitizeTerminalText(text)
 	if runes := []rune(text); len(runes) > 200 {
 		text = string(runes[:200])
 	}
@@ -35,9 +35,9 @@ func (e *HTTPStatusError) Error() string {
 		return "HTTP error"
 	}
 	if e.APIError != nil {
-		return sanitizeTerminalText(e.APIError.Error())
+		return SanitizeTerminalText(e.APIError.Error())
 	}
-	body := sanitizeTerminalText(strings.TrimSpace(e.Body))
+	body := SanitizeTerminalText(strings.TrimSpace(e.Body))
 	if body == "" {
 		return fmt.Sprintf("HTTP %d", e.StatusCode)
 	}
@@ -63,7 +63,7 @@ func IsRetryableHTTPError(err error) bool {
 // sanitizeTerminalText makes response text safe to print to a terminal:
 // control characters such as ESC are shown as escaped hex instead of being
 // interpreted, and line breaks and tabs become spaces.
-func sanitizeTerminalText(text string) string {
+func SanitizeTerminalText(text string) string {
 	var b strings.Builder
 	for _, r := range text {
 		switch {

@@ -119,3 +119,31 @@ func TestResolveArtistReportsAlbumThatExhaustsRetries(t *testing.T) {
 	assert.True(t, utils.IsRetryableHTTPError(skipped.Err))
 	assert.Equal(t, artistAlbumFetchAttempts, api.albumCalls["2"])
 }
+
+func TestResolveArtistEscapesSkippedAlbumIDWithoutTitle(t *testing.T) {
+	withoutAlbumRetryBackoff(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/direct-albums"):
+			_, _ = fmt.Fprint(w, `{"result":{"albums":[{"id":1,"title":"Arrival"},{"id":"2\u001b[2J"}],"pager":{"total":2,"page":0,"perPage":50}}}`)
+		case strings.HasPrefix(r.URL.Path, "/albums/1/"):
+			_, _ = fmt.Fprint(w, `{"result":{"id":1,"title":"Arrival","volumes":[[{"id":"10","title":"Track","available":true}]]}}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = fmt.Fprint(w, `{"error":{"name":"not-found","message":"Album not found"}}`)
+		}
+	}))
+	t.Cleanup(server.Close)
+	httpClient := utils.NewHttpClient()
+	httpClient.SetTransport(rewriteToServer{host: server.Listener.Addr().String()})
+
+	result, err := Resolve(ya.NewClient(httpClient), "https://music.yandex.ru/artist/170660")
+
+	require.NoError(t, err)
+	require.Len(t, result.SkippedAlbums, 1)
+	assert.Equal(t, "2\x1b[2J", result.SkippedAlbums[0].ID)
+	label := result.SkippedAlbums[0].Label()
+	assert.NotContains(t, label, "\x1b")
+	assert.Equal(t, `#2\x1b[2J`, label)
+}

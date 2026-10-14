@@ -326,6 +326,7 @@ func formatBatchEvent(event batch.Event) string {
 // not be loaded, so an incomplete download does not look complete.
 func reportSkippedAlbums(w io.Writer, skipped []source.SkippedAlbum) {
 	for _, album := range skipped {
-		fmt.Fprintf(w, "Warning: album %s could not be loaded and was skipped: %v\n", album.Label(), album.Err)
+		fmt.Fprintf(w, "Warning: album %s could not be loaded and was skipped: %s\n",
+			album.Label(), utils.SanitizeTerminalText(album.Err.Error()))
 	}
 }

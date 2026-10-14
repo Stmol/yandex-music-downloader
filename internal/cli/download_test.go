@@ -525,15 +525,17 @@ func TestDownloadPreflightKeepsSkippedArtistAlbums(t *testing.T) {
 	}
 }
 
-func TestReportSkippedAlbumsWarnsWithEscapedTitles(t *testing.T) {
+func TestReportSkippedAlbumsEscapesTitlesIDsAndErrors(t *testing.T) {
 	var stderr bytes.Buffer
 	reportSkippedAlbums(&stderr, []source.SkippedAlbum{
 		{ID: "2", Title: "SOS\x1b[2J", Err: errors.New("HTTP 503")},
 		{ID: "3", Err: errors.New("HTTP 429")},
+		{ID: "4\x1b[2J", Err: errors.New("album 4\x1b[2J not found")},
 	})
 
 	want := "Warning: album \"SOS\\x1b[2J\" could not be loaded and was skipped: HTTP 503\n" +
-		"Warning: album #3 could not be loaded and was skipped: HTTP 429\n"
+		"Warning: album #3 could not be loaded and was skipped: HTTP 429\n" +
+		"Warning: album #4\\x1b[2J could not be loaded and was skipped: album 4\\x1b[2J not found\n"
 	if got := stderr.String(); got != want {
 		t.Fatalf("stderr = %q, want %q", got, want)
 	}

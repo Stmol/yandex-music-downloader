@@ -45,12 +45,13 @@ type SkippedAlbum struct {
 	Err   error
 }
 
-// Label names the album for messages: its quoted title, or its ID when the title is unknown.
+// Label names the album for messages: its quoted title, or its ID when the title
+// is unknown. Both come from the API, so control characters are escaped.
 func (a SkippedAlbum) Label() string {
 	if title := strings.TrimSpace(a.Title); title != "" {
 		return strconv.Quote(title)
 	}
-	return "#" + a.ID
+	return "#" + utils.SanitizeTerminalText(a.ID)
 }
 
 func Resolve(client Client, input string) (Result, error) {

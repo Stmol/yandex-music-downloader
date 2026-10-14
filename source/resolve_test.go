@@ -313,4 +313,5 @@ func TestSkippedAlbumLabelQuotesTitleOrFallsBackToID(t *testing.T) {
 	assert.Equal(t, `"Arrival"`, SkippedAlbum{ID: "1", Title: "Arrival"}.Label())
 	assert.Equal(t, `"Bad\x1b[2J"`, SkippedAlbum{ID: "2", Title: "Bad\x1b[2J"}.Label())
 	assert.Equal(t, "#3", SkippedAlbum{ID: "3", Title: "  "}.Label())
+	assert.Equal(t, `#2\x1b[2J`, SkippedAlbum{ID: "2\x1b[2J"}.Label())
 }
