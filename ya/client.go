@@ -61,6 +61,8 @@ type trackDownloadFunc func(track model.Track, outputDir string, options Downloa
 type YaClient interface {
 	TrackInfo(id string) (*model.Track, error)
 	AlbumWithTracks(id string) (*model.Album, error)
+	ArtistInfo(id string) (*model.Artist, error)
+	ArtistDirectAlbums(id string) ([]model.Album, error)
 	UsersPlaylist(id string, username string) (*model.Playlist, error)
 	PlaylistByUUID(id string) (*model.Playlist, error)
 	Chart(region string) (*model.Playlist, error)
@@ -187,6 +189,98 @@ func (c *Client) AlbumWithTracks(id string) (*model.Album, error) {
 
 		return &data.Result, nil
 	}
+}
+
+const artistAlbumsPageSize = 50
+
+func (c *Client) ArtistInfo(id string) (*model.Artist, error) {
+	url := fmt.Sprintf("%s/artists/%s/brief-info", baseURL, id)
+
+	res, err := c.httpClient.Get(url)
+	if err != nil {
+		return nil, err
+	}
+
+	artist, err := parseArtistInfo(res)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(artist.ID.String()) == "" && strings.TrimSpace(artist.Name) == "" {
+		return nil, fmt.Errorf("artist not found")
+	}
+	return artist, nil
+}
+
+func parseArtistInfo(responseBody []byte) (*model.Artist, error) {
+	var envelope struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := parseResponse(responseBody, &envelope); err != nil {
+		return nil, err
+	}
+	if len(bytes.TrimSpace(envelope.Result)) == 0 {
+		return nil, fmt.Errorf("artist not found")
+	}
+
+	var artist model.Artist
+	if err := json.Unmarshal(envelope.Result, &artist); err == nil {
+		if artist.ID.String() != "" || artist.Name != "" {
+			return &artist, nil
+		}
+	}
+
+	var artists []model.Artist
+	if err := json.Unmarshal(envelope.Result, &artists); err == nil && len(artists) > 0 {
+		return &artists[0], nil
+	}
+
+	var brief struct {
+		Artist model.Artist `json:"artist"`
+	}
+	if err := json.Unmarshal(envelope.Result, &brief); err == nil {
+		if brief.Artist.ID.String() != "" || brief.Artist.Name != "" {
+			return &brief.Artist, nil
+		}
+	}
+
+	return nil, fmt.Errorf("artist not found")
+}
+
+func (c *Client) ArtistDirectAlbums(id string) ([]model.Album, error) {
+	var all []model.Album
+	for page := 0; page < 1000; page++ {
+		endpoint := fmt.Sprintf("%s/artists/%s/direct-albums?page=%d&page-size=%d&sort-by=year",
+			baseURL, id, page, artistAlbumsPageSize)
+
+		res, err := c.httpClient.Get(endpoint)
+		if err != nil {
+			return nil, err
+		}
+
+		var data model.ArtistAlbumsResponse
+		if err := parseResponse(res, &data); err != nil {
+			return nil, err
+		}
+
+		pageAlbums := data.Result.Albums
+		if len(pageAlbums) == 0 {
+			break
+		}
+		all = append(all, pageAlbums...)
+
+		total := data.Result.Pager.Total
+		if total > 0 && len(all) >= total {
+			break
+		}
+		perPage := data.Result.Pager.PerPage
+		if perPage == 0 {
+			perPage = artistAlbumsPageSize
+		}
+		if len(pageAlbums) < perPage {
+			break
+		}
+	}
+	return all, nil
 }
 
 func (c *Client) UsersPlaylist(id string, username string) (*model.Playlist, error) {
@@ -344,7 +438,7 @@ func (c *Client) downloadTrackMP3(track model.Track, outputDir string, options D
 	}
 
 	trackCtx := utils.NewTrackLogContext(track)
-	filename := buildTrackFilename(track, outputDir, options.FilenameSuffix)
+	filename := buildTrackFilename(track, outputDir, options)
 	c.logTrack(slog.LevelInfo, trackCtx, "download started",
 		"stage", "start",
 		"filename", filename,
@@ -456,7 +550,7 @@ func (c *Client) downloadTrackLossless(track model.Track, outputDir string, opti
 		return "", fmt.Errorf("failed to get lossless download info: %w", err)
 	}
 
-	filename := buildTrackFilenameWithExtension(track, outputDir, losslessExtensionForCodec(info.Codec), options.FilenameSuffix)
+	filename := buildTrackFilenameWithExtension(track, outputDir, losslessExtensionForCodec(info.Codec), options)
 	c.logTrack(slog.LevelInfo, trackCtx, "lossless target resolved",
 		"stage", "resolve_lossless_target",
 		"filename", filename,
@@ -546,17 +640,22 @@ func (c *Client) waitCoverDownload(trackCtx utils.TrackLogContext, coverCh <-cha
 	return cover
 }
 
-func buildTrackFilename(track model.Track, outputDir, filenameSuffix string) string {
-	return buildTrackFilenameWithExtension(track, outputDir, ".mp3", filenameSuffix)
+func buildTrackFilename(track model.Track, outputDir string, options DownloadOptions) string {
+	return buildTrackFilenameWithExtension(track, outputDir, ".mp3", options)
 }
 
-func buildTrackFilenameWithExtension(track model.Track, outputDir, extension, filenameSuffix string) string {
+func buildTrackFilenameWithExtension(track model.Track, outputDir, extension string, options DownloadOptions) string {
 	if !strings.HasPrefix(extension, ".") {
 		extension = "." + extension
 	}
-	filename := TrackFilenameKey(track)
-	if filenameSuffix != "" {
-		filename += " " + filenameSuffix
+	filename := strings.TrimSpace(options.FilenameBase)
+	if filename == "" {
+		filename = TrackFilenameKey(track)
+	} else {
+		filename = utils.SanitizeFilename(filename)
+	}
+	if options.FilenameSuffix != "" {
+		filename += " " + options.FilenameSuffix
 	}
 	return filepath.Join(outputDir, filename+extension)
 }

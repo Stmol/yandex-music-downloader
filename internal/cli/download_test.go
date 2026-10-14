@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 	"ya-music/internal/batch"
+	"ya-music/source"
 	"ya-music/utils"
 	"ya-music/ya/model"
 )
@@ -436,6 +438,14 @@ func (*blockingPreflightClient) AlbumWithTracks(string) (*model.Album, error) {
 	panic("AlbumWithTracks must not be called after account cancellation")
 }
 
+func (*blockingPreflightClient) ArtistInfo(string) (*model.Artist, error) {
+	panic("ArtistInfo must not be called after account cancellation")
+}
+
+func (*blockingPreflightClient) ArtistDirectAlbums(string) ([]model.Album, error) {
+	panic("ArtistDirectAlbums must not be called after account cancellation")
+}
+
 func (*blockingPreflightClient) UsersPlaylist(string, string) (*model.Playlist, error) {
 	panic("UsersPlaylist must not be called after account cancellation")
 }
@@ -469,6 +479,14 @@ func (*blockingSourcePreflightClient) AlbumWithTracks(string) (*model.Album, err
 	panic("AlbumWithTracks must not be called for a track URL")
 }
 
+func (*blockingSourcePreflightClient) ArtistInfo(string) (*model.Artist, error) {
+	panic("ArtistInfo must not be called for a track URL")
+}
+
+func (*blockingSourcePreflightClient) ArtistDirectAlbums(string) ([]model.Album, error) {
+	panic("ArtistDirectAlbums must not be called for a track URL")
+}
+
 func (*blockingSourcePreflightClient) UsersPlaylist(string, string) (*model.Playlist, error) {
 	panic("UsersPlaylist must not be called for a track URL")
 }
@@ -499,4 +517,79 @@ func assertConsumeResultPending(t *testing.T, results <-chan consumeResult) {
 		t.Fatalf("event consumer returned before router flush: %#v", result)
 	default:
 	}
+}
+
+func TestDownloadPreflightKeepsSkippedArtistAlbums(t *testing.T) {
+	result := runDownloadPreflight(&artistPreflightClient{}, "https://music.yandex.ru/artist/170660")
+
+	if result.err != nil {
+		t.Fatalf("unexpected error: %v", result.err)
+	}
+	if len(result.tracks) != 1 {
+		t.Fatalf("tracks = %d, want 1", len(result.tracks))
+	}
+	if len(result.skippedAlbums) != 1 || result.skippedAlbums[0].ID != "2" {
+		t.Fatalf("skipped albums = %+v, want album 2", result.skippedAlbums)
+	}
+}
+
+func TestReportSkippedAlbumsEscapesTitlesIDsAndErrors(t *testing.T) {
+	var stderr bytes.Buffer
+	reportSkippedAlbums(&stderr, []source.SkippedAlbum{
+		{ID: "2", Title: "SOS\x1b[2J", Err: errors.New("HTTP 503")},
+		{ID: "3", Err: errors.New("HTTP 429")},
+		{ID: "4\x1b[2J", Err: errors.New("album 4\x1b[2J not found")},
+	})
+
+	want := "Warning: album \"SOS\\x1b[2J\" could not be loaded and was skipped: HTTP 503\n" +
+		"Warning: album #3 could not be loaded and was skipped: HTTP 429\n" +
+		"Warning: album #4\\x1b[2J could not be loaded and was skipped: album 4\\x1b[2J not found\n"
+	if got := stderr.String(); got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+}
+
+// artistPreflightClient resolves an artist with two albums, one of which cannot be loaded.
+type artistPreflightClient struct{}
+
+func (*artistPreflightClient) AccountStatus() (*model.Account, error) {
+	return &model.Account{Uid: 1}, nil
+}
+
+func (*artistPreflightClient) TrackInfo(string) (*model.Track, error) {
+	panic("TrackInfo must not be called for an artist URL")
+}
+
+func (*artistPreflightClient) AlbumWithTracks(id string) (*model.Album, error) {
+	if id == "2" {
+		return nil, &utils.HTTPStatusError{StatusCode: http.StatusNotFound}
+	}
+	return &model.Album{
+		ID:      model.FlexibleID(id),
+		Title:   "Arrival",
+		Volumes: [][]model.Track{{{ID: model.FlexibleID("10"), Title: "Dancing Queen", Available: true}}},
+	}, nil
+}
+
+func (*artistPreflightClient) ArtistInfo(string) (*model.Artist, error) {
+	return &model.Artist{ID: model.FlexibleID("170660"), Name: "ABBA"}, nil
+}
+
+func (*artistPreflightClient) ArtistDirectAlbums(string) ([]model.Album, error) {
+	return []model.Album{
+		{ID: model.FlexibleID("1"), Title: "Arrival"},
+		{ID: model.FlexibleID("2"), Title: "SOS"},
+	}, nil
+}
+
+func (*artistPreflightClient) UsersPlaylist(string, string) (*model.Playlist, error) {
+	panic("UsersPlaylist must not be called for an artist URL")
+}
+
+func (*artistPreflightClient) PlaylistByUUID(string) (*model.Playlist, error) {
+	panic("PlaylistByUUID must not be called for an artist URL")
+}
+
+func (*artistPreflightClient) Chart(string) (*model.Playlist, error) {
+	panic("Chart must not be called for an artist URL")
 }

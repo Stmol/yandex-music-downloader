@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 	"ya-music/internal/batch"
+	"ya-music/internal/config"
 	"ya-music/source"
 	"ya-music/utils"
 	"ya-music/ya"
@@ -44,6 +45,12 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 	}
 	options := parsed.options
 
+	cfg, err := config.Load(options.configPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+
 	downloadLogger, client := newLoggedClient(options.timeoutSeconds, stderr)
 	defer downloadLogger.Close()
 	client.SetToken(options.token)
@@ -65,6 +72,10 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	tracks := preflight.tracks
+	reportSkippedAlbums(stderr, preflight.skippedAlbums)
+	for _, album := range preflight.skippedAlbums {
+		downloadLogger.Error("album skipped", "album_id", album.ID, "title", album.Title, "error", album.Err)
+	}
 
 	if err := utils.EnsureOutputDir(options.output); err != nil {
 		return handleOutputDirError(stderr, err)
@@ -83,10 +94,13 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 	summary, interrupted := consumeDownloadEventsWithFlush(
 		stdout,
 		batch.Run(batch.Config{
-			Client:    client,
-			Tracks:    tracks,
-			OutputDir: options.output,
-			Context:   batchContext,
+			Client:         client,
+			Tracks:         tracks,
+			OutputDir:      options.output,
+			Context:        batchContext,
+			Settings:       cfg,
+			FolderArtist:   preflight.folderArtist,
+			FolderPlaylist: preflight.folderPlaylist,
 			Options: ya.DownloadOptions{
 				SkipCover:   options.skipCover,
 				AudioFormat: options.format,
@@ -99,16 +113,20 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 		interrupts.flush,
 	)
 
-	fmt.Fprintf(stdout, "\nFinished: %d downloaded, %d skipped, %d failed\nOutput: %s\n",
+	fmt.Fprintf(stdout, "\nFinished: %d downloaded, %d skipped, %d failed\n",
 		summary.downloaded,
 		summary.skipped,
 		summary.failed,
-		options.output,
 	)
+	if skippedAlbums := len(preflight.skippedAlbums); skippedAlbums > 0 {
+		fmt.Fprintf(stdout, "Albums not loaded: %d\n", skippedAlbums)
+	}
+	fmt.Fprintf(stdout, "Output: %s\n", options.output)
 	downloadLogger.Info("batch download finished",
 		"downloaded", summary.downloaded,
 		"skipped", summary.skipped,
 		"failed", summary.failed,
+		"albums_not_loaded", len(preflight.skippedAlbums),
 		"interrupted", interrupted,
 	)
 	if interrupted {
@@ -140,8 +158,11 @@ type downloadPreflightClient interface {
 }
 
 type downloadPreflightResult struct {
-	tracks []model.Track
-	err    error
+	tracks         []model.Track
+	folderArtist   string
+	folderPlaylist string
+	skippedAlbums  []source.SkippedAlbum
+	err            error
 }
 
 func startDownloadPreflight(client downloadPreflightClient, link string) <-chan downloadPreflightResult {
@@ -162,14 +183,19 @@ func runDownloadPreflight(client downloadPreflightClient, link string) downloadP
 		return downloadPreflightResult{err: fmt.Errorf("failed to validate token: %w", err)}
 	}
 
-	tracks, err := source.Resolve(client, link)
+	result, err := source.Resolve(client, link)
 	if err != nil {
 		return downloadPreflightResult{err: fmt.Errorf("failed to resolve source: %w", err)}
 	}
-	if len(tracks) == 0 {
+	if len(result.Tracks) == 0 {
 		return downloadPreflightResult{err: errors.New("failed to resolve source: no tracks found")}
 	}
-	return downloadPreflightResult{tracks: tracks}
+	return downloadPreflightResult{
+		tracks:         result.Tracks,
+		folderArtist:   result.FolderArtist,
+		folderPlaylist: result.FolderPlaylist,
+		skippedAlbums:  result.SkippedAlbums,
+	}
 }
 
 func awaitDownloadPreflight(
@@ -311,4 +337,13 @@ func formatBatchEvent(event batch.Event) string {
 		}
 	}
 	return fmt.Sprintf("[%s] %s", status, event.Track.DisplayLabel())
+}
+
+// reportSkippedAlbums warns about albums of an artist discography that could
+// not be loaded, so an incomplete download does not look complete.
+func reportSkippedAlbums(w io.Writer, skipped []source.SkippedAlbum) {
+	for _, album := range skipped {
+		fmt.Fprintf(w, "Warning: album %s could not be loaded and was skipped: %s\n",
+			album.Label(), utils.SanitizeTerminalText(album.Err.Error()))
+	}
 }

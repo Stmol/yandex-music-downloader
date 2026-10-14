@@ -34,8 +34,10 @@ func (p Playlist) TracksList() []Track {
 		return nil
 	}
 	tracks := make([]Track, 0, len(p.Tracks))
-	for _, short := range p.Tracks {
-		tracks = append(tracks, short.Track)
+	for i, short := range p.Tracks {
+		track := short.Track
+		track.PlaylistIndex = i + 1
+		tracks = append(tracks, track)
 	}
 	return tracks
 }

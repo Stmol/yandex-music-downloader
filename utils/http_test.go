@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+	"ya-music/ya/model"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -121,6 +122,24 @@ func TestGetRecognizesResultWrappedAPIErrorPayload(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.ErrorContains(t, err, "not-allowed")
+}
+
+func TestGetReturnsHTTPStatusErrorForNonJSONRateLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("Captcha required"))
+	}))
+	defer server.Close()
+
+	client := NewHttpClient()
+	body, err := client.Get(server.URL)
+
+	assert.Empty(t, body)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "HTTP 429")
+	assert.ErrorContains(t, err, "Captcha required")
+	assert.True(t, IsRetryableHTTPError(err))
 }
 
 func TestGetWithContextLogsRequestAndRedactsAuthorization(t *testing.T) {
@@ -426,4 +445,77 @@ func TestDownloadFileWithContextRedactsSignedURL(t *testing.T) {
 	assert.Contains(t, logs.String(), "url="+SanitizeURL(signedURL))
 	assert.NotContains(t, logs.String(), "token=secret")
 	assert.NotContains(t, logs.String(), "/signed-part/ts-value/path/to/file.mp3")
+}
+
+func TestGetKeepsStatusForJSONAPIErrors(t *testing.T) {
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"error":{"name":"temporary-error","message":"Try again later"}}`))
+			}))
+			defer server.Close()
+
+			_, err := NewHttpClient().Get(server.URL)
+
+			require.Error(t, err)
+			assert.True(t, IsRetryableHTTPError(err))
+			assert.EqualError(t, err, "Try again later")
+			var httpErr *HTTPStatusError
+			require.ErrorAs(t, err, &httpErr)
+			assert.Equal(t, status, httpErr.StatusCode)
+			var apiErr *model.ErrorResponse
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, "temporary-error", apiErr.APIError.Name)
+		})
+	}
+}
+
+func TestGetDoesNotRetryJSONClientErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"name":"not-found","message":"Album not found"}}`))
+	}))
+	defer server.Close()
+
+	_, err := NewHttpClient().Get(server.URL)
+
+	require.Error(t, err)
+	assert.False(t, IsRetryableHTTPError(err))
+	assert.EqualError(t, err, "Album not found")
+}
+
+func TestHTTPStatusErrorEscapesTerminalControlSequences(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("Captcha required \x1b[2J\x1b[HInjected screen"))
+	}))
+	defer server.Close()
+
+	_, err := NewHttpClient().Get(server.URL)
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "\x1b")
+	assert.Equal(t, `HTTP 429: Captcha required \x1b[2J\x1b[HInjected screen`, err.Error())
+}
+
+func TestHTTPStatusErrorEscapesControlSequencesInAPIErrors(t *testing.T) {
+	err := &HTTPStatusError{
+		StatusCode: http.StatusServiceUnavailable,
+		APIError: &model.ErrorResponse{APIError: struct {
+			Name    string `json:"name"`
+			Message string `json:"message"`
+		}{Name: "unavailable", Message: "Down\x1b[31m for\nmaintenance"}},
+	}
+
+	assert.Equal(t, `Down\x1b[31m for maintenance`, err.Error())
+}
+
+func TestHTTPStatusErrorKeepsOrdinaryMessagesReadable(t *testing.T) {
+	err := newHTTPStatusError(http.StatusBadGateway, []byte("  Bad gateway: upstream is down  "))
+
+	assert.Equal(t, "HTTP 502: Bad gateway: upstream is down", err.Error())
 }

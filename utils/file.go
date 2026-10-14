@@ -51,6 +51,9 @@ func EnsureOutputDir(path string) error {
 }
 
 func CreateDirIfNotExists(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return os.MkdirAll(path, 0755)
 	}

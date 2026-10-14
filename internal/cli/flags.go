@@ -13,6 +13,7 @@ import (
 type sharedFlags struct {
 	timeoutSeconds int
 	skipCover      bool
+	configPath     string
 }
 
 type parseOutcome[T any] struct {
@@ -43,6 +44,7 @@ func validateSharedFlags(options sharedFlags) error {
 func registerSharedFlags(fs *flag.FlagSet, dest *sharedFlags) {
 	fs.IntVar(&dest.timeoutSeconds, "timeout", 0, "download timeout in seconds (0 disables timeout)")
 	fs.BoolVar(&dest.skipCover, "skip-cover", false, "skip downloading and embedding track cover images")
+	fs.StringVar(&dest.configPath, "config", "", "path to YAML config (default ./yamdl.yaml)")
 }
 
 func parseTUIOptions(args []string, stderr io.Writer) parseOutcome[tuiOptions] {
@@ -72,7 +74,7 @@ func parseDownloadOptions(args []string, stderr io.Writer) parseOutcome[download
 	flags := flag.NewFlagSet("yamdl download", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.token, "token", "", "Yandex Music authentication token (required)")
-	flags.StringVar(&options.link, "link", "", "Yandex Music track, album, playlist, or chart URL (required)")
+	flags.StringVar(&options.link, "link", "", "Yandex Music track, album, artist, playlist, or chart URL (required)")
 	format := string(options.format)
 	flags.StringVar(&format, "format", format, "audio format: mp3 or flac")
 	flags.StringVar(&options.output, "output", options.output, "directory for downloaded tracks")
