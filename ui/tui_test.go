@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"errors"
+	"strings"
 	"testing"
+	"ya-music/source"
 	"ya-music/utils"
 	"ya-music/ya"
 	"ya-music/ya/model"
@@ -157,4 +160,25 @@ func TestSourceSubmitAddsTracks(t *testing.T) {
 	assert.Equal(t, UiStateDownloading, updated.initState)
 	assert.Equal(t, 3, updated.downloadModel.tracksTotalCount)
 	assert.Equal(t, 3, updated.downloadModel.downloadableCount)
+}
+
+func TestSourceSubmitShowsSkippedAlbumsUntilBackToURL(t *testing.T) {
+	m := StartUi(nil)
+	m.initState = UiStateSelectSource
+
+	updatedModel, _ := m.Update(SourceSubmitMsg{
+		Tracks: []model.Track{{ID: model.FlexibleID("1"), Title: "Track", Available: true}},
+		SkippedAlbums: []source.SkippedAlbum{
+			{ID: "2", Title: "SOS", Err: errors.New("HTTP 503")},
+			{ID: "3", Title: "Arrival", Err: errors.New("HTTP 429")},
+		},
+	})
+	updated := updatedModel.(Model)
+
+	header := strings.Join(strings.Fields(ansi.Strip(updated.downloadModel.headerBlock())), " ")
+	assert.Contains(t, header, `2 albums could not be loaded and will not be downloaded: "SOS", "Arrival"`)
+
+	updatedModel, _ = updated.Update(BackToURLMsg{})
+	updated = updatedModel.(Model)
+	assert.NotContains(t, ansi.Strip(updated.downloadModel.headerBlock()), "could not be loaded")
 }

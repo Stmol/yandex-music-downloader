@@ -999,3 +999,9 @@ func TestDownloadModelDirectoryError(t *testing.T) {
 	assert.NotEmpty(t, updated.errorMsg)
 	assert.Contains(t, ansi.Strip(updated.headerBlock()), "Directory error: output path is not a directory")
 }
+
+func TestWrapToLinesKeepsWordsAndLimitsLines(t *testing.T) {
+	assert.Equal(t, "one two\nthree", wrapToLines("one two three", 8, 3))
+	assert.Equal(t, "one two\nthree…", wrapToLines("one two three four five", 8, 2))
+	assert.Equal(t, "short", wrapToLines("short", 0, 1))
+}

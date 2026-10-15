@@ -15,6 +15,7 @@ var (
 	playlistPattern        = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/users/(?P<username>[^/]+)/playlists/(?P<playlistId>\d+)(?:\?.*)?$`)
 	playlistUUIDPattern    = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/playlists/(?P<playlistUuid>(?:[a-z]{2}\.)?[0-9a-fA-F-]{36})(?:\?.*)?$`)
 	chartPattern           = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/chart(?:/(?P<region>[a-z]+))?(?:\?.*)?$`)
+	artistPattern          = regexp.MustCompile(`^(?:https?://)?` + yandexMusicHostPattern + `/artist/(?P<artistId>\d+)(?:/[^?]*)?(?:\?.*)?$`)
 )
 
 type Kind int
@@ -25,12 +26,14 @@ const (
 	KindLegacyPlaylist
 	KindPlaylistUUID
 	KindChart
+	KindArtist
 )
 
 type Ref struct {
 	Kind         Kind
 	TrackID      string
 	AlbumID      string
+	ArtistID     string
 	PlaylistID   string
 	PlaylistUUID string
 	Username     string
@@ -87,6 +90,12 @@ func parseRef(input string) *Ref {
 		return &Ref{
 			Kind:   KindChart,
 			Region: matches[1],
+		}
+	}
+	if matches := artistPattern.FindStringSubmatch(input); matches != nil {
+		return &Ref{
+			Kind:     KindArtist,
+			ArtistID: matches[1],
 		}
 	}
 	return nil

@@ -141,3 +141,17 @@ func TestParseDownloadOptionsFlagOverridesEnv(t *testing.T) {
 		t.Fatalf("expected output = %q, got %q", "/flag/download/path", parsed.options.output)
 	}
 }
+
+func TestParseDownloadOptionsAcceptsArtistLink(t *testing.T) {
+	var stderr bytes.Buffer
+	parsed := parseDownloadOptions([]string{
+		"--token", "abc123",
+		"--link", "https://music.yandex.ru/artist/170660",
+	}, &stderr)
+	if !parsed.proceed {
+		t.Fatalf("expected proceed, exit code = %d, stderr: %s", parsed.exitCode, stderr.String())
+	}
+	if parsed.options.link != "https://music.yandex.ru/artist/170660" {
+		t.Fatalf("link = %q", parsed.options.link)
+	}
+}

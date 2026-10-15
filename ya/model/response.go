@@ -18,6 +18,15 @@ type AlbumResponse struct {
 	Result Album `json:"result"`
 }
 
+type ArtistAlbumsResponse struct {
+	Result ArtistAlbums `json:"result"`
+}
+
+type ArtistAlbums struct {
+	Albums []Album `json:"albums"`
+	Pager  Pager   `json:"pager"`
+}
+
 type AccountStatusResponse struct {
 	Result Status `json:"result"`
 }

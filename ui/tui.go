@@ -71,6 +71,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SourceSubmitMsg:
 		m.initState = UiStateDownloading
 		m.downloadModel.AddTracks(msg.Tracks)
+		m.downloadModel.SetSkippedAlbums(msg.SkippedAlbums)
 		m.resizeToWindow()
 
 		cmds = append(cmds, m.downloadModel.Init())

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"ya-music/source"
 	"ya-music/utils"
 	"ya-music/ya"
 	"ya-music/ya/model"
@@ -162,6 +163,8 @@ type DownloadModel struct {
 
 	// Error message.
 	errorMsg string
+	// Warning about albums of an artist discography that could not be loaded.
+	skippedAlbumsMsg string
 
 	// UI components.
 	spinner   spinner.Model
@@ -277,6 +280,7 @@ func (m *DownloadModel) Reset() {
 	m.help.ShowAll = false
 	m.selectedTrackInfo = ""
 	m.errorMsg = ""
+	m.skippedAlbumsMsg = ""
 	m.hideDuplicates = false
 	m.trackList.ResetFilter()
 	m.trackList.ResetSelected()
@@ -523,7 +527,30 @@ func (m DownloadModel) headerBlock() string {
 		info = dimGrayForeground.Render("Select a track to inspect its details")
 	}
 	info = capLinesToWidth(info, m.trackList.Width())
+	if m.skippedAlbumsMsg != "" {
+		warning := wrapToLines(m.skippedAlbumsMsg, m.trackList.Width(), maxSkippedAlbumsLines)
+		header += "\n" + redForeground.Render(warning)
+	}
 	return marginLeftStyle.Render(header) + "\n\n" + marginLeftStyle.Render(info)
+}
+
+// SetSkippedAlbums shows a warning for albums that could not be loaded,
+// so an incomplete artist discography is visible before the download starts.
+func (m *DownloadModel) SetSkippedAlbums(skipped []source.SkippedAlbum) {
+	if len(skipped) == 0 {
+		m.skippedAlbumsMsg = ""
+		return
+	}
+	labels := make([]string, len(skipped))
+	for i, album := range skipped {
+		labels[i] = album.Label()
+	}
+	noun := "albums"
+	if len(skipped) == 1 {
+		noun = "album"
+	}
+	m.skippedAlbumsMsg = fmt.Sprintf("%d %s could not be loaded and will not be downloaded: %s",
+		len(skipped), noun, strings.Join(labels, ", "))
 }
 
 func (m DownloadModel) trackListStyle() lipgloss.Style {
@@ -541,6 +568,23 @@ func (m DownloadModel) renderTrackList() string {
 		content += strings.Repeat("\n ", missingRows)
 	}
 	return m.trackListStyle().Render(content)
+}
+
+// maxSkippedAlbumsLines limits how much of the queue header the skipped-albums warning can take.
+const maxSkippedAlbumsLines = 3
+
+// wrapToLines word-wraps plain text to width and keeps at most maxLines lines,
+// ending the last one with an ellipsis when the text was cut.
+func wrapToLines(text string, width, maxLines int) string {
+	if width <= 0 {
+		return text
+	}
+	lines := strings.Split(ansi.Wrap(text, width, ""), "\n")
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+		lines[maxLines-1] = ansi.Truncate(lines[maxLines-1], width-1, "") + "…"
+	}
+	return strings.Join(lines, "\n")
 }
 
 func capLinesToWidth(content string, width int) string {

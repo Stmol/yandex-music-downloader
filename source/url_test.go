@@ -71,6 +71,18 @@ func TestParseChartURLWithRegion(t *testing.T) {
 	assert.Equal(t, &Ref{Kind: KindChart, Region: "world"}, ref)
 }
 
+func TestParseArtistURL(t *testing.T) {
+	ref, err := Parse("https://music.yandex.ru/artist/170660")
+	requireNoError(t, err)
+	assert.Equal(t, &Ref{Kind: KindArtist, ArtistID: "170660"}, ref)
+}
+
+func TestParseArtistURLWithPathAndQuery(t *testing.T) {
+	ref, err := Parse("https://music.yandex.com/artist/170660/albums?utm_source=web")
+	requireNoError(t, err)
+	assert.Equal(t, &Ref{Kind: KindArtist, ArtistID: "170660"}, ref)
+}
+
 func TestParseInvalidURL(t *testing.T) {
 	_, err := Parse("https://music.yandex.ru/playlists/not-a-uuid")
 	assert.Error(t, err)
