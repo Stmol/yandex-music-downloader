@@ -49,6 +49,33 @@ separate design decision.
 - TUI changes require focused model/rendering tests and a manual terminal
   review when output layout or keyboard behavior changes.
 
+## Repository agent skills
+
+Read and follow the applicable repository skill before starting its work.
+These tracked instructions are available to every agent; if the agent cannot
+invoke skills by name, open the linked `SKILL.md` and follow it directly.
+
+- [yamdl](.agents/skills/yamdl/SKILL.md): use before changing YAMDL code,
+  tests, CLI/TUI behavior, provider payload handling, or audio artifacts, and
+  for project-specific verification.
+- [bugs](.agents/skills/bugs/SKILL.md): use before diagnosing or fixing YAMDL
+  regressions, intermittent tests, cancellation, races, HTTP behavior,
+  temporary files, metadata, or provider payload compatibility. For code
+  fixes, also follow `yamdl`.
+- [release-flow](.agents/skills/release-flow/SKILL.md): use when preparing or
+  reviewing release artifacts or the release workflow, and complete its
+  preflight before creating or pushing a release tag. This skill does not
+  authorize publication; creating or pushing tags requires explicit release
+  authorization.
+
+Before handing off code changes or opening a PR, review the diff against this
+contract and the applicable skills, then run `bash scripts/verify.sh`. Before
+merging a PR, confirm the required CI checks passed for the current PR revision.
+Report which skills were applied, the verification commands and results, and
+any skipped checks or blockers. Reading a skill alone is not verification.
+CI runs the scripts and checks file presence; it does not execute agent skills
+or perform an agent review.
+
 ## Verification levels
 
 Local, deterministic checks are the source of truth for repository changes:
