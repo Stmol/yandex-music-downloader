@@ -4,6 +4,7 @@ set -euo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 validator="$script_dir/release-validate.sh"
+extractor="$script_dir/extract-release-notes.sh"
 temp_root=$(mktemp -d "${TMPDIR:-/tmp}/yamdl-release-test.XXXXXX")
 trap 'rm -rf "$temp_root"' EXIT
 
@@ -39,6 +40,28 @@ done
 )
 
 bash "$validator" "$version" "$output_dir" "$changelog"
+
+printf '\n%s\n' 'Test release.' > "$temp_root/expected-notes.md"
+bash "$extractor" "$version" "$changelog" > "$temp_root/actual-notes.md"
+cmp "$temp_root/expected-notes.md" "$temp_root/actual-notes.md"
+
+printf '# Changelog\n\n## v9x9x9 - 2026-09-19\n\nWrong heading.\n' > "$changelog"
+if bash "$validator" "$version" "$output_dir" "$changelog"; then
+  printf 'validator accepted a changelog heading with incorrect separators\n' >&2
+  exit 1
+fi
+if bash "$extractor" "$version" "$changelog" > "$temp_root/wrong-notes.md"; then
+  printf 'release notes extractor accepted a changelog heading with incorrect separators\n' >&2
+  exit 1
+fi
+
+printf '# Changelog\n\n## %s0 - 2026-09-19\n\nWrong version.\n' "$version" > "$changelog"
+if bash "$validator" "$version" "$output_dir" "$changelog"; then
+  printf 'validator accepted a changelog heading with an extended version\n' >&2
+  exit 1
+fi
+
+printf '# Changelog\n\n## %s - 2026-09-19\n\nTest release.\n' "$version" > "$changelog"
 
 printf 'tampered archive\n' >> "$output_dir/yamdl_${version}_linux_amd64.zip"
 if bash "$validator" "$version" "$output_dir" "$changelog"; then

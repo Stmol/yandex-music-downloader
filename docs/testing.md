@@ -8,6 +8,16 @@ Run the single repository entrypoint:
 bash scripts/verify.sh
 ```
 
+The repository currently declares Go `1.25.0` in `go.mod`. Run the verifier
+with that toolchain so the pinned Staticcheck version can read the compiler's
+export data, even when the system Go is newer:
+
+```bash
+GOTOOLCHAIN=go1.25.0 bash scripts/verify.sh
+```
+
+Go downloads the requested toolchain automatically when it is not installed.
+
 It checks formatting, static analysis, tests, race behavior, module integrity,
 the CLI build, shell syntax, project assets, and whitespace errors. The gate is
 deterministic and must not call Yandex Music or require a token.

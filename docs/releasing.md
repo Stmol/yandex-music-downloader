@@ -2,6 +2,13 @@
 
 Releases are tag-driven and must pass the release workflow before publication.
 
+To validate the release build, archives, checksums, and Linux CLI without
+publishing, open a pull request: the `Release` workflow validates its code
+using the latest reachable release tag and skips the publish job. You can also
+run the workflow manually from the default branch and enter the version to
+validate. A push of a `v*` tag runs the same validation and publishes only
+after it passes.
+
 ## Preflight
 
 1. Update `CHANGELOG.md` with a section matching the exact `vX.Y.Z` tag.
