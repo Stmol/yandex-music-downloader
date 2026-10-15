@@ -40,6 +40,7 @@ check_assets() {
     scripts/build.sh
     scripts/verify.sh
     scripts/verify_test.sh
+    scripts/extract-release-notes.sh
     scripts/release-validate.sh
     scripts/release-validate-test.sh
     docs/architecture.md
@@ -84,6 +85,8 @@ check_cli_build() {
 }
 
 main() {
+  step 'Verifier script tests' bash scripts/verify_test.sh
+  step 'Release validator tests' bash scripts/release-validate-test.sh
   step 'Go formatting' check_format "$repo_root"
   step 'Go module integrity' go mod verify
   step 'Go module tidy diff' go mod tidy -diff

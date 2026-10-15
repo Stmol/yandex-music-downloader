@@ -1,9 +1,16 @@
 name: Release
 
 on:
+  pull_request:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version to validate without publishing (for example, v1.13.3)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -82,19 +89,35 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Resolve release validation version
+        id: release-version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            version="$INPUT_VERSION"
+          elif [[ "$EVENT_NAME" == push ]]; then
+            version="$REF_NAME"
+          else
+            version=$(git describe --tags --abbrev=0)
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
       - name: Build release artifacts
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ steps.release-version.outputs.version }}
         run: bash scripts/build.sh "$TAG_NAME"
 
       - name: Validate release artifacts
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ steps.release-version.outputs.version }}
         run: bash scripts/release-validate.sh "$TAG_NAME" build CHANGELOG.md
 
       - name: Smoke-test Linux CLI
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ steps.release-version.outputs.version }}
         run: |
           unzip -q "build/yamdl_${TAG_NAME}_linux_amd64.zip" -d "$RUNNER_TEMP/yamdl-smoke"
           chmod +x "$RUNNER_TEMP/yamdl-smoke/yamdl"
@@ -117,6 +140,7 @@ jobs:
 
   publish:
     name: Publish release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -138,11 +162,7 @@ jobs:
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          awk -v version="$TAG_NAME" '
-            $0 ~ "^## " version "([[:space:]]|$)" { capture=1; next }
-            capture && /^## / { exit }
-            capture { print }
-          ' CHANGELOG.md > release_notes.md
+          bash scripts/extract-release-notes.sh "$TAG_NAME" CHANGELOG.md > release_notes.md
           test -s release_notes.md
 
       - name: Create GitHub release

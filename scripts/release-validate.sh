@@ -16,8 +16,8 @@ if [[ ! -f "$changelog" ]]; then
   exit 1
 fi
 
-if ! awk -v version="$version" \
-  '$0 ~ "^## " version "([[:space:]]|$)" { found=1 } END { exit !found }' \
+if ! awk -v heading="## $version" \
+  '$0 == heading || (index($0, heading) == 1 && substr($0, length(heading) + 1, 1) ~ /[[:space:]]/) { found=1 } END { exit !found }' \
   "$changelog"; then
   printf 'CHANGELOG.md has no section for %s\n' "$version" >&2
   exit 1
