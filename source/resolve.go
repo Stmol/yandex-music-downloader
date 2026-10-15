@@ -239,6 +239,17 @@ func mergeTrackAlbum(existing []model.Album, parent model.Album) []model.Album {
 	if current.ID.String() == "" {
 		current.ID = parent.ID
 	}
+	if current.ID == parent.ID {
+		if strings.TrimSpace(current.CoverURI) == "" {
+			current.CoverURI = parent.CoverURI
+		}
+		if strings.TrimSpace(current.Genre) == "" {
+			current.Genre = parent.Genre
+		}
+		if strings.TrimSpace(current.ReleaseDate) == "" {
+			current.ReleaseDate = parent.ReleaseDate
+		}
+	}
 	existing[0] = current
 	return existing
 }
