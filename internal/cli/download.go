@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 	"ya-music/internal/batch"
@@ -25,6 +26,13 @@ func newLoggedClient(timeoutSeconds int, stderr io.Writer) (*utils.DownloadLogge
 	}
 	httpClient := utils.NewHttpClientWithLogger(downloadLogger)
 	httpClient.SetDownloadTimeout(time.Duration(timeoutSeconds) * time.Second)
+
+	if proxyURL := os.Getenv("YAMDL_PROXY"); proxyURL != "" {
+		if err := httpClient.SetProxy(proxyURL); err != nil {
+			fmt.Fprintf(stderr, "failed to set proxy: %v\n", err)
+		}
+	}
+
 	return downloadLogger, ya.NewClient(httpClient)
 }
 
