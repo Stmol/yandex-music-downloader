@@ -26,7 +26,7 @@ func runTUI(args []string, stderr io.Writer) int {
 		return 2
 	}
 
-	downloadLogger, client := newLoggedClient(options.timeoutSeconds, stderr)
+	downloadLogger, client := newLoggedClient(options.timeoutSeconds, options.proxy, stderr)
 	defer downloadLogger.Close()
 
 	sigCh := make(chan os.Signal, 1)

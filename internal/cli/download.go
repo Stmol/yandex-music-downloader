@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 	"ya-music/internal/batch"
@@ -15,7 +14,7 @@ import (
 	"ya-music/ya/model"
 )
 
-func newLoggedClient(timeoutSeconds int, stderr io.Writer) (*utils.DownloadLogger, *ya.Client) {
+func newLoggedClient(timeoutSeconds int, proxyURL string, stderr io.Writer) (*utils.DownloadLogger, *ya.Client) {
 	downloadLogger, err := utils.NewDownloadLogger(utils.DefaultDownloadLogPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "failed to initialize download logger: %v\n", err)
@@ -27,7 +26,7 @@ func newLoggedClient(timeoutSeconds int, stderr io.Writer) (*utils.DownloadLogge
 	httpClient := utils.NewHttpClientWithLogger(downloadLogger)
 	httpClient.SetDownloadTimeout(time.Duration(timeoutSeconds) * time.Second)
 
-	if proxyURL := os.Getenv("YAMDL_PROXY"); proxyURL != "" {
+	if proxyURL != "" {
 		if err := httpClient.SetProxy(proxyURL); err != nil {
 			fmt.Fprintf(stderr, "failed to set proxy: %v\n", err)
 		}
@@ -52,7 +51,7 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 	}
 	options := parsed.options
 
-	downloadLogger, client := newLoggedClient(options.timeoutSeconds, stderr)
+	downloadLogger, client := newLoggedClient(options.timeoutSeconds, options.proxy, stderr)
 	defer downloadLogger.Close()
 	client.SetToken(options.token)
 

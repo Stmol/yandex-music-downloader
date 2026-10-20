@@ -13,6 +13,7 @@ import (
 type sharedFlags struct {
 	timeoutSeconds int
 	skipCover      bool
+	proxy          string
 }
 
 type parseOutcome[T any] struct {
@@ -30,6 +31,7 @@ type downloadOptions struct {
 	link   string
 	format ya.AudioFormat
 	output string
+	proxy  string
 	sharedFlags
 }
 
@@ -50,6 +52,12 @@ func parseTUIOptions(args []string, stderr io.Writer) parseOutcome[tuiOptions] {
 	flags := flag.NewFlagSet("yamdl", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	registerSharedFlags(flags, &options.sharedFlags)
+	flags.StringVar(
+		&options.proxy,
+		"proxy",
+		"",
+		"proxy URL (HTTP, HTTPS, or SOCKS5)",
+	)
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return parseOutcome[tuiOptions]{exitCode: 0}
@@ -76,6 +84,12 @@ func parseDownloadOptions(args []string, stderr io.Writer) parseOutcome[download
 	format := string(options.format)
 	flags.StringVar(&format, "format", format, "audio format: mp3 or flac")
 	flags.StringVar(&options.output, "output", options.output, "directory for downloaded tracks")
+	flags.StringVar(
+		&options.proxy,
+		"proxy",
+		"",
+		"proxy URL (HTTP, HTTPS, or SOCKS5)",
+	)
 	registerSharedFlags(flags, &options.sharedFlags)
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: yamdl download --token TOKEN --link URL [options]")

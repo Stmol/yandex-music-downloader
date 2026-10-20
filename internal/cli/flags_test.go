@@ -63,6 +63,7 @@ func TestParseDownloadOptionsAcceptsCurrentDownloadFlags(t *testing.T) {
 		"--format", "FLAC",
 		"--output", "./music",
 		"--timeout", "180",
+		"--proxy", "socks5://127.0.0.1:1080",
 		"--skip-cover",
 	}, &stderr)
 
@@ -75,6 +76,9 @@ func TestParseDownloadOptionsAcceptsCurrentDownloadFlags(t *testing.T) {
 	}
 	if options.format != ya.AudioFormatFLAC || options.output != "./music" || options.timeoutSeconds != 180 || !options.skipCover {
 		t.Fatalf("unexpected parsed options: %#v", options)
+	}
+	if options.proxy != "socks5://127.0.0.1:1080" {
+		t.Fatalf("proxy = %q", options.proxy)
 	}
 }
 
