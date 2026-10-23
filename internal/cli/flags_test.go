@@ -80,6 +80,73 @@ func TestParseDownloadOptionsAcceptsCurrentDownloadFlags(t *testing.T) {
 	if options.proxy != "socks5://127.0.0.1:1080" {
 		t.Fatalf("proxy = %q", options.proxy)
 	}
+	if options.proxyURL == nil || options.proxyURL.Host != "127.0.0.1:1080" {
+		t.Fatalf("proxyURL = %v", options.proxyURL)
+	}
+}
+
+func TestParseDownloadOptionsTrimsProxyValue(t *testing.T) {
+	var stderr bytes.Buffer
+	parsed := parseDownloadOptions([]string{
+		"--token", "abc123",
+		"--link", "https://music.yandex.ru/album/123",
+		"--proxy", "  http://127.0.0.1  ",
+	}, &stderr)
+
+	if !parsed.proceed {
+		t.Fatalf("expected proceed, exit code = %d, stderr: %s", parsed.exitCode, stderr.String())
+	}
+	if parsed.options.proxy != "http://127.0.0.1" {
+		t.Fatalf("proxy = %q, want trimmed value", parsed.options.proxy)
+	}
+	if parsed.options.proxyURL == nil || parsed.options.proxyURL.Host != "127.0.0.1:80" {
+		t.Fatalf("proxyURL = %v, want default port filled in", parsed.options.proxyURL)
+	}
+}
+
+func TestParseDownloadOptionsRejectsInvalidProxy(t *testing.T) {
+	tests := [][]string{
+		{"--proxy", "ftp://127.0.0.1:21"},
+		{"--proxy", "http://"},
+		{"--proxy", "http://proxy.local/path"},
+		{"--proxy", "http://user:sec ret@proxy.local"},
+	}
+
+	for _, extra := range tests {
+		args := append([]string{
+			"--token", "abc123",
+			"--link", "https://music.yandex.ru/album/123",
+		}, extra...)
+
+		var stderr bytes.Buffer
+		parsed := parseDownloadOptions(args, &stderr)
+		if parsed.proceed || parsed.exitCode != 2 {
+			t.Fatalf("args %q: proceed = %v, exit code = %d, want exit 2", args, parsed.proceed, parsed.exitCode)
+		}
+		if !strings.Contains(stderr.String(), "invalid --proxy value") {
+			t.Fatalf("args %q: stderr = %q", args, stderr.String())
+		}
+		if strings.Contains(stderr.String(), "sec ret") {
+			t.Fatalf("args %q: stderr leaks credentials: %q", args, stderr.String())
+		}
+	}
+}
+
+func TestParseTUIOptionsHandlesProxy(t *testing.T) {
+	var stderr bytes.Buffer
+	parsed := parseTUIOptions([]string{"--proxy", "socks5://127.0.0.1:1080"}, &stderr)
+	if !parsed.proceed {
+		t.Fatalf("expected proceed, exit code = %d, stderr: %s", parsed.exitCode, stderr.String())
+	}
+	if parsed.options.proxyURL == nil || parsed.options.proxyURL.Host != "127.0.0.1:1080" {
+		t.Fatalf("proxyURL = %v", parsed.options.proxyURL)
+	}
+
+	stderr.Reset()
+	parsed = parseTUIOptions([]string{"--proxy", "ftp://127.0.0.1"}, &stderr)
+	if parsed.proceed || parsed.exitCode != 2 {
+		t.Fatalf("invalid proxy: proceed = %v, exit code = %d, want exit 2", parsed.proceed, parsed.exitCode)
+	}
 }
 
 func TestParseDownloadOptionsRejectsInvalidInput(t *testing.T) {

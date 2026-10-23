@@ -60,7 +60,6 @@ Use the `download` subcommand to fetch a track, album, artist discography, playl
 ./yamdl download \
   --token TOKEN \
   --link https://music.yandex.ru/album/10733135 \
-  --proxy socks5://127.0.0.1:1080 \
   --format mp3 \
   --output ./downloads
 ```
@@ -69,7 +68,7 @@ Available options:
 
 - `--token <token>` is required. Provide your Yandex Music OAuth token.
 - `--link <url>` is required. Provide a Yandex Music track, album, artist, playlist, or chart URL. For an artist, an album that cannot be loaded after several retries is skipped with a warning on stderr, and the summary shows `Albums not loaded: N`.
-- `--proxy <url>` optionally configures an HTTP, HTTPS, or SOCKS5 proxy. When omitted, connections are made directly.
+- `--proxy <url>` optionally routes all connections through an HTTP, HTTPS, or SOCKS5 proxy, for example `--proxy socks5://127.0.0.1:1080`. Supported forms are `http://[user:password@]host[:port]`, `https://[user:password@]host[:port]`, and `socks5://[user:password@]host[:port]`; an omitted port defaults to 80, 443, and 1080 respectively. An invalid value makes the command exit with code 2 before any request is sent. Note that credentials passed as a command-line argument are visible in `ps` output and your shell history. HTTPS proxies are verified against the system root CAs; proxies using a custom CA are not supported. When `--proxy` is omitted, the standard `HTTP_PROXY`/`HTTPS_PROXY` environment variables are honored.
 - `--format <mp3|flac>` selects MP3 or lossless download; MP3 is the default.
 - `--output <directory>` selects the destination directory (defaults to `YAMDL_DOWNLOAD_DIR` if set, or `./downloads`). Passing this flag overrides the environment variable.
 - `--timeout <seconds>` limits the download time for each audio file. Use `0`, the default, to disable the limit.

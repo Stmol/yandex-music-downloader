@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,8 +14,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/net/proxy"
 
 	"ya-music/ya/model"
 )
@@ -101,63 +98,14 @@ func (c *HttpClient) SetToken(token string) {
 	c.headers["Authorization"] = fmt.Sprintf("OAuth %s", token)
 }
 
-func (c *HttpClient) SetProxy(proxyURL string) error {
-	u, err := url.Parse(proxyURL)
+func (c *HttpClient) SetProxy(u *url.URL) error {
+	transport, err := NewProxyTransport(u)
 	if err != nil {
-		return fmt.Errorf("parse proxy URL: %w", err)
+		return err
 	}
 
-	switch u.Scheme {
-	case "http", "https":
-		if u.Hostname() == "" || u.Port() == "" {
-			return fmt.Errorf("proxy URL must contain host and port")
-		}
-
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.Proxy = http.ProxyURL(u)
-
-		c.SetTransport(transport)
-		return nil
-
-	case "socks5":
-		if u.Hostname() == "" || u.Port() == "" {
-			return fmt.Errorf("proxy URL must contain host and port")
-		}
-
-		var auth *proxy.Auth
-		if u.User != nil {
-			password, _ := u.User.Password()
-			auth = &proxy.Auth{
-				User:     u.User.Username(),
-				Password: password,
-			}
-		}
-
-		dialer, err := proxy.SOCKS5(
-			"tcp",
-			net.JoinHostPort(u.Hostname(), u.Port()),
-			auth,
-			proxy.Direct,
-		)
-		if err != nil {
-			return fmt.Errorf("create SOCKS5 dialer: %w", err)
-		}
-
-		contextDialer, ok := dialer.(proxy.ContextDialer)
-		if !ok {
-			return fmt.Errorf("SOCKS5 dialer does not support context")
-		}
-
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.Proxy = nil
-		transport.DialContext = contextDialer.DialContext
-
-		c.SetTransport(transport)
-		return nil
-
-	default:
-		return fmt.Errorf("unsupported proxy scheme: %q", u.Scheme)
-	}
+	c.SetTransport(transport)
+	return nil
 }
 
 func (c *HttpClient) SetTransport(rt http.RoundTripper) {

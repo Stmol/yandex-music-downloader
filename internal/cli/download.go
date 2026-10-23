@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"time"
 	"ya-music/internal/batch"
@@ -14,7 +15,7 @@ import (
 	"ya-music/ya/model"
 )
 
-func newLoggedClient(timeoutSeconds int, proxyURL string, stderr io.Writer) (*utils.DownloadLogger, *ya.Client) {
+func newLoggedClient(timeoutSeconds int, proxyURL *url.URL, stderr io.Writer) (*utils.DownloadLogger, *ya.Client, error) {
 	downloadLogger, err := utils.NewDownloadLogger(utils.DefaultDownloadLogPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "failed to initialize download logger: %v\n", err)
@@ -26,13 +27,14 @@ func newLoggedClient(timeoutSeconds int, proxyURL string, stderr io.Writer) (*ut
 	httpClient := utils.NewHttpClientWithLogger(downloadLogger)
 	httpClient.SetDownloadTimeout(time.Duration(timeoutSeconds) * time.Second)
 
-	if proxyURL != "" {
+	if proxyURL != nil {
 		if err := httpClient.SetProxy(proxyURL); err != nil {
-			fmt.Fprintf(stderr, "failed to set proxy: %v\n", err)
+			_ = downloadLogger.Close()
+			return nil, nil, fmt.Errorf("failed to configure proxy: %w", err)
 		}
 	}
 
-	return downloadLogger, ya.NewClient(httpClient)
+	return downloadLogger, ya.NewClient(httpClient), nil
 }
 
 func handleOutputDirError(stderr io.Writer, err error) int {
@@ -51,7 +53,11 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 	}
 	options := parsed.options
 
-	downloadLogger, client := newLoggedClient(options.timeoutSeconds, options.proxy, stderr)
+	downloadLogger, client, err := newLoggedClient(options.timeoutSeconds, options.proxyURL, stderr)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	defer downloadLogger.Close()
 	client.SetToken(options.token)
 
