@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 
+	"ya-music/internal/config"
 	"ya-music/utils"
 	"ya-music/ya"
 
@@ -71,6 +72,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SourceSubmitMsg:
 		m.initState = UiStateDownloading
 		m.downloadModel.AddTracks(msg.Tracks)
+		m.downloadModel.folderArtist = msg.FolderArtist
+		m.downloadModel.folderPlaylist = msg.FolderPlaylist
 		m.downloadModel.SetSkippedAlbums(msg.SkippedAlbums)
 		m.resizeToWindow()
 
@@ -118,11 +121,16 @@ func (m Model) View() tea.View {
 }
 
 func StartUi(client *ya.Client, options ...ya.DownloadOptions) Model {
+	return StartUiWithConfig(client, downloadOptionsOrDefault(options), config.Config{})
+}
+
+// StartUiWithConfig starts the TUI with the YAML settings; each feature reads its own field from settings.
+func StartUiWithConfig(client *ya.Client, download ya.DownloadOptions, settings config.Config) Model {
 	return Model{
 		initState:     UiStateTokenInput,
 		tokenModel:    NewTokenModel(client),
 		sourceModel:   NewSourceModel(client),
-		downloadModel: NewDownloadModel(client, downloadOptionsOrDefault(options)),
+		downloadModel: NewDownloadModelWithConfig(client, download, settings),
 	}
 }
 

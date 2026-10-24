@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"ya-music/internal/config"
 	"ya-music/source"
 	"ya-music/utils"
 	"ya-music/ya"
@@ -56,6 +57,24 @@ func TestInputScreensUseSharedBrandHeader(t *testing.T) {
 	assert.Contains(t, tokenView, "Connect to Yandex Music")
 	assert.Contains(t, sourceView, "yamdl  //  SOURCE")
 	assert.Contains(t, sourceView, "Paste a Yandex Music link")
+}
+
+func TestStartUiWithConfigStoresSettings(t *testing.T) {
+	client := ya.NewClient(utils.NewHttpClient())
+	model := StartUiWithConfig(client, ya.DownloadOptions{}, config.Config{
+		Layout: config.Layout{
+			ByArtist:      true,
+			ByAlbum:       true,
+			AlbumDirMask:  "{year} - {title}",
+			TrackFileMask: "{nn} - {title}",
+		},
+	})
+
+	settings := model.downloadModel.settings
+	assert.True(t, settings.Layout.ByArtist)
+	assert.True(t, settings.Layout.ByAlbum)
+	assert.Equal(t, "{year} - {title}", settings.Layout.AlbumDirMask)
+	assert.Equal(t, "{nn} - {title}", settings.Layout.TrackFileMask)
 }
 
 func TestWindowSizeMsgIsStoredAndAppliedToChildModels(t *testing.T) {
@@ -181,4 +200,54 @@ func TestSourceSubmitShowsSkippedAlbumsUntilBackToURL(t *testing.T) {
 	updatedModel, _ = updated.Update(BackToURLMsg{})
 	updated = updatedModel.(Model)
 	assert.NotContains(t, ansi.Strip(updated.downloadModel.headerBlock()), "could not be loaded")
+}
+
+func TestSourceSubmitStoresFolderArtist(t *testing.T) {
+	m := StartUi(nil)
+
+	updatedModel, _ := m.Update(SourceSubmitMsg{
+		Tracks: []model.Track{
+			{ID: model.FlexibleID("1"), Title: "A", Available: true},
+		},
+		FolderArtist: "ABBA",
+	})
+	updated := updatedModel.(Model)
+
+	assert.Equal(t, "ABBA", updated.downloadModel.folderArtist)
+}
+
+func TestSourceSubmitStoresFolderPlaylist(t *testing.T) {
+	m := StartUi(nil)
+
+	updatedModel, _ := m.Update(SourceSubmitMsg{
+		Tracks: []model.Track{
+			{ID: model.FlexibleID("1"), Title: "A", Available: true},
+		},
+		FolderPlaylist: "Favorites",
+	})
+	updated := updatedModel.(Model)
+
+	assert.Equal(t, "Favorites", updated.downloadModel.folderPlaylist)
+}
+
+func TestBackToURLClearsFolderArtist(t *testing.T) {
+	m := StartUi(nil)
+	m.initState = UiStateDownloading
+	m.downloadModel.folderArtist = "ABBA"
+
+	updatedModel, _ := m.Update(BackToURLMsg{})
+	updated := updatedModel.(Model)
+
+	assert.Empty(t, updated.downloadModel.folderArtist)
+}
+
+func TestBackToURLClearsFolderPlaylist(t *testing.T) {
+	m := StartUi(nil)
+	m.initState = UiStateDownloading
+	m.downloadModel.folderPlaylist = "Favorites"
+
+	updatedModel, _ := m.Update(BackToURLMsg{})
+	updated := updatedModel.(Model)
+
+	assert.Empty(t, updated.downloadModel.folderPlaylist)
 }

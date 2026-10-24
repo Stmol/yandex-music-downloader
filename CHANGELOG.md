@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- add `track_file_mask` so downloaded filenames can include a padded or plain track number, year, album title, and track title
+- add `by_playlist` so playlist and chart tracks are saved as a flat list in a folder named after the playlist, ignoring `by_artist` and `by_album`
+- use playlist position for `{n}` and `{nn}` when downloading a playlist or chart, instead of the original album track number
+- add an optional YAML config, loaded from `./yamdl.yaml` or `--config <path>`, with `layout.by_artist`, `layout.by_album` and `layout.album_dir_mask` to nest downloads by artist and release; without a config the download layout is unchanged
 
 ## v1.14.0 - 2026-10-16
 - add artist page URLs to the TUI and `yamdl download`: an artist link downloads the artist's own albums and singles, retrying album requests on HTTP 429 and 5xx responses; an album that keeps failing is skipped and reported as a warning in the CLI and the TUI

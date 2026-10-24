@@ -3,10 +3,12 @@ package batch
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
+	"ya-music/internal/config"
 	"ya-music/ya"
 	"ya-music/ya/model"
 
@@ -72,6 +74,7 @@ func TestRunSkipsUnavailableDuplicatesAndExistingFiles(t *testing.T) {
 
 type recordedDownload struct {
 	id      string
+	dir     string
 	options ya.DownloadOptions
 }
 
@@ -80,10 +83,10 @@ type recordingClient struct {
 	downloads []recordedDownload
 }
 
-func (c *recordingClient) DownloadTrackWithOptions(track model.Track, _ string, options ya.DownloadOptions) (string, error) {
+func (c *recordingClient) DownloadTrackWithOptions(track model.Track, outputDir string, options ya.DownloadOptions) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.downloads = append(c.downloads, recordedDownload{id: track.ID.String(), options: options})
+	c.downloads = append(c.downloads, recordedDownload{id: track.ID.String(), dir: outputDir, options: options})
 	return track.ID.String() + ".mp3", nil
 }
 
@@ -146,6 +149,162 @@ func TestRunDeduplicatesOnlyIDsAndSuffixesFilenameCollisions(t *testing.T) {
 	assert.Empty(t, emptyIDDownloads[0].options.FilenameSuffix)
 	assert.Empty(t, emptyIDDownloads[1].options.FilenameSuffix)
 	assert.Equal(t, SkipDuplicate, findEvent(t, events, 3, StatusSkipped).Reason)
+}
+
+func TestRunWritesTracksIntoLayoutDirectories(t *testing.T) {
+	client := &recordingClient{}
+	outputDir := t.TempDir()
+	events := collect(Run(Config{
+		Client:    client,
+		OutputDir: outputDir,
+		Settings: config.Config{
+			Layout: config.Layout{
+				ByArtist:     true,
+				ByAlbum:      true,
+				AlbumDirMask: "{year} - {title}",
+			},
+		},
+		FolderArtist: "ABBA",
+		Tracks: []model.Track{
+			{
+				ID:        "1",
+				Title:     "Dancing Queen",
+				Artists:   []model.Artist{{Name: "ABBA"}},
+				Available: true,
+				Albums:    []model.Album{{Title: "Arrival", Year: 1976}},
+			},
+			{
+				ID:        "2",
+				Title:     "SOS",
+				Artists:   []model.Artist{{Name: "ABBA"}},
+				Available: true,
+				Albums:    []model.Album{{Title: "SOS", Year: 1975}},
+			},
+		},
+		Concurrency: 1,
+	}))
+
+	require.Len(t, events, 4)
+	downloads := client.downloadsByID()
+	assert.Equal(t, filepath.Join(outputDir, "ABBA", "1976 - Arrival"), downloads["1"].dir)
+	assert.Equal(t, filepath.Join(outputDir, "ABBA", "1975 - SOS"), downloads["2"].dir)
+}
+
+func TestRunWritesPlaylistTracksIntoFlatDirectory(t *testing.T) {
+	client := &recordingClient{}
+	outputDir := t.TempDir()
+	events := collect(Run(Config{
+		Client:    client,
+		OutputDir: outputDir,
+		Settings: config.Config{
+			Layout: config.Layout{
+				ByArtist:     true,
+				ByAlbum:      true,
+				ByPlaylist:   true,
+				AlbumDirMask: "{year} - {title}",
+			},
+		},
+		FolderArtist:   "ABBA",
+		FolderPlaylist: "Favorites",
+		Tracks: []model.Track{
+			{
+				ID:        "1",
+				Title:     "Dancing Queen",
+				Artists:   []model.Artist{{Name: "ABBA"}},
+				Available: true,
+				Albums:    []model.Album{{Title: "Arrival", Year: 1976}},
+			},
+			{
+				ID:        "2",
+				Title:     "SOS",
+				Artists:   []model.Artist{{Name: "ABBA"}},
+				Available: true,
+				Albums:    []model.Album{{Title: "SOS", Year: 1975}},
+			},
+		},
+		Concurrency: 1,
+	}))
+
+	require.Len(t, events, 4)
+	downloads := client.downloadsByID()
+	wantDir := filepath.Join(outputDir, "Favorites")
+	assert.Equal(t, wantDir, downloads["1"].dir)
+	assert.Equal(t, wantDir, downloads["2"].dir)
+}
+
+func TestRunSuffixesFilenameCollisionsOnlyInsideTheSameDirectory(t *testing.T) {
+	client := &recordingClient{}
+	events := collect(Run(Config{
+		Client: client,
+		Settings: config.Config{
+			Layout: config.Layout{ByAlbum: true, AlbumDirMask: "{title}"},
+		},
+		Tracks: []model.Track{
+			{
+				ID:        "1",
+				Title:     "Same/Title",
+				Artists:   []model.Artist{{Name: "Artist"}},
+				Available: true,
+				Albums:    []model.Album{{Title: "Album One"}},
+			},
+			{
+				ID:        "2",
+				Title:     "Same:Title",
+				Artists:   []model.Artist{{Name: "Artist"}},
+				Available: true,
+				Albums:    []model.Album{{Title: "Album Two"}},
+			},
+		},
+		Concurrency: 1,
+	}))
+
+	require.Len(t, events, 4)
+	downloads := client.downloadsByID()
+	assert.Empty(t, downloads["1"].options.FilenameSuffix)
+	assert.Empty(t, downloads["2"].options.FilenameSuffix)
+}
+
+func TestRunPassesMaskedFilenameBaseAndSuffixesMaskCollisions(t *testing.T) {
+	client := &recordingClient{}
+	events := collect(Run(Config{
+		Client: client,
+		Settings: config.Config{
+			Layout: config.Layout{TrackFileMask: "{nn} - {title}"},
+		},
+		Tracks: []model.Track{
+			{
+				ID:        "1",
+				Title:     "Same/Title",
+				Artists:   []model.Artist{{Name: "Artist"}},
+				Available: true,
+				Albums:    []model.Album{{TrackPosition: model.TrackPosition{Index: 1}}},
+			},
+			{
+				ID:        "2",
+				Title:     "Same:Title",
+				Artists:   []model.Artist{{Name: "Other"}},
+				Available: true,
+				Albums:    []model.Album{{TrackPosition: model.TrackPosition{Index: 1}}},
+			},
+			{
+				ID:        "3",
+				Title:     "Other Title",
+				Artists:   []model.Artist{{Name: "Artist"}},
+				Available: true,
+				Albums:    []model.Album{{TrackPosition: model.TrackPosition{Index: 2}}},
+			},
+		},
+		Concurrency: 1,
+	}))
+
+	require.Len(t, events, 6)
+	downloads := client.downloadsByID()
+	assert.Equal(t, "01 - Same_Title", downloads["1"].options.FilenameBase)
+	assert.Equal(t, "01 - Same_Title", downloads["2"].options.FilenameBase)
+	assert.Equal(t, "02 - Other Title", downloads["3"].options.FilenameBase)
+	assert.Equal(t, "[1]", downloads["1"].options.FilenameSuffix)
+	assert.Equal(t, "[2]", downloads["2"].options.FilenameSuffix)
+	assert.Empty(t, downloads["3"].options.FilenameSuffix)
 }
 
 type blockingClient struct {

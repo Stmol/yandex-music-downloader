@@ -11,6 +11,7 @@ type DownloadOptions struct {
 	SkipCover      bool
 	AudioFormat    AudioFormat
 	FilenameSuffix string
+	FilenameBase   string
 }
 
 func (o DownloadOptions) FormatOrDefault() AudioFormat {

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"ya-music/internal/config"
 	"ya-music/source"
 	"ya-music/utils"
 	"ya-music/ya"
@@ -160,6 +161,9 @@ type DownloadModel struct {
 	// External dependencies.
 	client          *ya.Client
 	downloadOptions ya.DownloadOptions
+	settings        config.Config // settings from YAML; each feature reads its own field
+	folderArtist    string
+	folderPlaylist  string
 
 	// Error message.
 	errorMsg string
@@ -196,6 +200,10 @@ type DownloadModel struct {
 }
 
 func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) DownloadModel {
+	return NewDownloadModelWithConfig(client, downloadOptionsOrDefault(options), config.Config{})
+}
+
+func NewDownloadModelWithConfig(client *ya.Client, options ya.DownloadOptions, settings config.Config) DownloadModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = spinnerStyle
@@ -226,7 +234,8 @@ func NewDownloadModel(client *ya.Client, options ...ya.DownloadOptions) Download
 
 	return DownloadModel{
 		client:            client,
-		downloadOptions:   downloadOptionsOrDefault(options),
+		downloadOptions:   options,
+		settings:          settings,
 		spinner:           sp,
 		progress:          p,
 		trackList:         l,
@@ -267,6 +276,8 @@ func (m DownloadModel) Init() tea.Cmd {
 func (m *DownloadModel) Reset() {
 	m.tracksProgress = nil
 	m.sessionEvents = nil
+	m.folderArtist = ""
+	m.folderPlaylist = ""
 	m.tracksTotalCount = 0
 	m.downloadedCount = 0
 	m.downloadableCount = 0
@@ -614,9 +625,14 @@ func (m DownloadModel) startDownloadSession() tea.Cmd {
 	logger := downloadLogger(client)
 	options := m.downloadOptions
 	targetDir := utils.ResolveOutputDir()
+	sessionConfig := SessionConfig{
+		Settings:       m.settings,
+		FolderArtist:   m.folderArtist,
+		FolderPlaylist: m.folderPlaylist,
+	}
 
 	return func() tea.Msg {
-		session := NewDownloadSession(client, logger, options, targetDir)
+		session := NewDownloadSession(client, logger, options, targetDir, sessionConfig)
 		return downloadSessionStartedMsg{events: session.Run(progress)}
 	}
 }

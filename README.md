@@ -35,6 +35,7 @@ A TUI application for downloading tracks from the Yandex Music streaming service
 -   Optional: set a download timeout in seconds: `./yamdl --timeout 180`
 -   Optional: skip cover download and embedding to save time and traffic: `./yamdl --skip-cover=true`
 -   Optional: set a default download directory via environment variable: `export YAMDL_DOWNLOAD_DIR="/path/to/music"`
+-   Optional: point to a YAML config for file layout: `./yamdl --config ./yamdl.yaml`
 
 ## Development
 
@@ -70,6 +71,7 @@ Available options:
 - `--link <url>` is required. Provide a Yandex Music track, album, artist, playlist, or chart URL. For an artist, an album that cannot be loaded after several retries is skipped with a warning on stderr, and the summary shows `Albums not loaded: N`.
 - `--format <mp3|flac>` selects MP3 or lossless download; MP3 is the default.
 - `--output <directory>` selects the destination directory (defaults to `YAMDL_DOWNLOAD_DIR` if set, or `./downloads`). Passing this flag overrides the environment variable.
+- `--config <path>` loads file-layout settings from YAML. If omitted, `./yamdl.yaml` is used when present.
 - `--timeout <seconds>` limits the download time for each audio file. Use `0`, the default, to disable the limit.
 - `--skip-cover` skips downloading and embedding cover art. Text metadata is still written.
 
@@ -84,6 +86,47 @@ During the download, each track event is appended to stdout as it happens. A tra
 Finished: 1 downloaded, 2 skipped, 0 failed
 Output: ./downloads
 ```
+
+## File layout
+
+By default, tracks are saved as `Artist - Title.ext` directly in the output directory. To nest files by artist and/or release, create `yamdl.yaml` in the working directory (or pass `--config`):
+
+```yaml
+layout:
+  by_artist: true
+  by_album: true
+  by_playlist: true
+  album_dir_mask: "{year} - {title}"
+  track_file_mask: "{nn} - {title}"
+```
+
+- `by_artist` puts files into a folder named after the artist. For an artist page, that is the page artist even on featured tracks.
+- `by_album` puts each album or single into its own folder. Albums and singles stay on the same level; there are no extra `Albums/` or `Singles/` parents.
+- `by_playlist` puts playlist and chart tracks into a single folder named after the playlist, as a flat list. In that case `by_artist` and `by_album` are ignored. Other sources are unchanged.
+- `album_dir_mask` names the release folder. Placeholders are `{year}` and `{title}`. A missing year is omitted, so `{year} - {title}` becomes `Arrival`.
+- `track_file_mask` names the audio file (without extension). Placeholders are `{n}` (track number), `{nn}` (zero-padded track number), `{year}`, `{album}`, `{title}` (track title), and `{artist}`. For playlists and charts `{n}` and `{nn}` are the position in the playlist, not the original album track number. Missing values are omitted, so `{nn} - {title}` without a track number becomes `Mamma Mia`. The default is `{artist} - {title}`.
+
+Example with both flags and `{nn} - {title}`:
+
+```text
+downloads/
+  ABBA/
+    1975 - ABBA/
+      01 - Mamma Mia.m4a
+    1976 - Arrival/
+      01 - Dancing Queen.m4a
+```
+
+Example playlist download with `by_playlist: true`:
+
+```text
+downloads/
+  Favorites/
+    01 - Mamma Mia.m4a
+    03 - SOS.m4a
+```
+
+Artist page URLs such as `https://music.yandex.ru/artist/170660` download that artist's own albums and singles (not compilation appearances). The same artist/album layout applies to tracks and albums; playlists and charts use `by_playlist` when it is enabled.
 
 ## Authentication Token
 
@@ -138,7 +181,7 @@ For alternative ways to get a token, see the [yandex-music API documentation](ht
 -   Depending on the source returned by Yandex Music, a lossless track may be saved as either `FLAC` or `M4A`
 -   Supported source URLs include tracks, albums, artists, playlists, and Yandex Music charts
 -   If FLAC is unavailable or cannot be downloaded, the app automatically falls back to the best available MP3
--   Downloads are saved to `./downloads` in the application's working directory (or to the directory specified by the `YAMDL_DOWNLOAD_DIR` environment variable)
+-   Downloads are saved to `./downloads` in the application's working directory (or to the directory specified by the `YAMDL_DOWNLOAD_DIR` environment variable), optionally nested by the [file layout](#file-layout) config
 -   Track status indicators:
 
 ```

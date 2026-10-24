@@ -13,6 +13,7 @@ import (
 type sharedFlags struct {
 	timeoutSeconds int
 	skipCover      bool
+	configPath     string
 }
 
 type parseOutcome[T any] struct {
@@ -43,6 +44,7 @@ func validateSharedFlags(options sharedFlags) error {
 func registerSharedFlags(fs *flag.FlagSet, dest *sharedFlags) {
 	fs.IntVar(&dest.timeoutSeconds, "timeout", 0, "download timeout in seconds (0 disables timeout)")
 	fs.BoolVar(&dest.skipCover, "skip-cover", false, "skip downloading and embedding track cover images")
+	fs.StringVar(&dest.configPath, "config", "", "path to YAML config (default ./yamdl.yaml)")
 }
 
 func parseTUIOptions(args []string, stderr io.Writer) parseOutcome[tuiOptions] {
