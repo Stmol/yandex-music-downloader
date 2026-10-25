@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"ya-music/utils"
 	"ya-music/ya"
@@ -13,6 +14,8 @@ import (
 type sharedFlags struct {
 	timeoutSeconds int
 	skipCover      bool
+	proxy          string
+	proxyURL       *url.URL
 }
 
 type parseOutcome[T any] struct {
@@ -33,16 +36,26 @@ type downloadOptions struct {
 	sharedFlags
 }
 
-func validateSharedFlags(options sharedFlags) error {
+func validateSharedFlags(options *sharedFlags) error {
 	if options.timeoutSeconds < 0 {
 		return errors.New("timeout must be >= 0 seconds")
 	}
+	options.proxy = strings.TrimSpace(options.proxy)
+	if options.proxy == "" {
+		return nil
+	}
+	proxyURL, err := utils.ParseProxyURL(options.proxy)
+	if err != nil {
+		return fmt.Errorf("invalid --proxy value: %w", err)
+	}
+	options.proxyURL = proxyURL
 	return nil
 }
 
 func registerSharedFlags(fs *flag.FlagSet, dest *sharedFlags) {
 	fs.IntVar(&dest.timeoutSeconds, "timeout", 0, "download timeout in seconds (0 disables timeout)")
 	fs.BoolVar(&dest.skipCover, "skip-cover", false, "skip downloading and embedding track cover images")
+	fs.StringVar(&dest.proxy, "proxy", "", "proxy URL (http, https, or socks5; [user:password@]host[:port])")
 }
 
 func parseTUIOptions(args []string, stderr io.Writer) parseOutcome[tuiOptions] {
@@ -60,7 +73,7 @@ func parseTUIOptions(args []string, stderr io.Writer) parseOutcome[tuiOptions] {
 		fmt.Fprintln(stderr, "unexpected command; use 'yamdl download --help' for batch downloads")
 		return parseOutcome[tuiOptions]{exitCode: 2}
 	}
-	if err := validateSharedFlags(options.sharedFlags); err != nil {
+	if err := validateSharedFlags(&options.sharedFlags); err != nil {
 		fmt.Fprintln(stderr, err)
 		return parseOutcome[tuiOptions]{exitCode: 2}
 	}
@@ -99,7 +112,7 @@ func parseDownloadOptions(args []string, stderr io.Writer) parseOutcome[download
 		fmt.Fprintln(stderr, "--link is required")
 		return parseOutcome[downloadOptions]{exitCode: 2}
 	}
-	if err := validateSharedFlags(options.sharedFlags); err != nil {
+	if err := validateSharedFlags(&options.sharedFlags); err != nil {
 		fmt.Fprintln(stderr, err)
 		return parseOutcome[downloadOptions]{exitCode: 2}
 	}

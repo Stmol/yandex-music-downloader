@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- add `--proxy` to the TUI and `yamdl download` to route all connections through an HTTP, HTTPS, or SOCKS5 proxy, with optional `user:password@` authentication; an invalid proxy URL exits with code 2 before any request is sent
 
 ## v1.14.0 - 2026-10-16
 - add artist page URLs to the TUI and `yamdl download`: an artist link downloads the artist's own albums and singles, retrying album requests on HTTP 429 and 5xx responses; an album that keeps failing is skipped and reported as a warning in the CLI and the TUI

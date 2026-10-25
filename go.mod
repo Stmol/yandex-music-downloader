@@ -18,7 +18,7 @@ require (
 	github.com/sahilm/fuzzy v0.1.3 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.3.8 // indirect
+	golang.org/x/text v0.36.0 // indirect
 )
 
 require (
@@ -30,6 +30,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.12.1
 	github.com/tommyo123/mtag v1.0.2
+	golang.org/x/net v0.53.0
 )
 
 require (

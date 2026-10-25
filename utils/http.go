@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,6 +96,16 @@ func (c *HttpClient) ResetCancel() {
 
 func (c *HttpClient) SetToken(token string) {
 	c.headers["Authorization"] = fmt.Sprintf("OAuth %s", token)
+}
+
+func (c *HttpClient) SetProxy(u *url.URL) error {
+	transport, err := NewProxyTransport(u)
+	if err != nil {
+		return err
+	}
+
+	c.SetTransport(transport)
+	return nil
 }
 
 func (c *HttpClient) SetTransport(rt http.RoundTripper) {

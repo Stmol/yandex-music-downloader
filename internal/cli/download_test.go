@@ -19,6 +19,22 @@ import (
 	"ya-music/ya/model"
 )
 
+func TestRunDownloadRejectsInvalidProxyWithoutNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := runDownload([]string{
+		"--token", "abc123",
+		"--link", "https://music.yandex.ru/album/123",
+		"--proxy", "ftp://127.0.0.1:21",
+	}, &stdout, &stderr)
+
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2: invalid proxy must fail closed", code)
+	}
+	if !strings.Contains(stderr.String(), "invalid --proxy value") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestHandleOutputDirErrorKeepsFileExitCode(t *testing.T) {
 	var stderr bytes.Buffer
 	err := fmt.Errorf("%w: %s", utils.ErrOutputPathNotDirectory, "/tmp/output-file")
