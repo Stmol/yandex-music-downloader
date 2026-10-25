@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,6 +53,10 @@ func ParseProxyURL(raw string) (*url.URL, error) {
 	port := u.Port()
 	if port == "" {
 		port = defaultProxyPort(u.Scheme)
+	}
+	portNumber, err := strconv.Atoi(port)
+	if err != nil || portNumber < 1 || portNumber > 65535 {
+		return nil, errors.New("proxy port must be between 1 and 65535")
 	}
 	u.Host = net.JoinHostPort(u.Hostname(), port)
 
@@ -100,6 +105,10 @@ func NewProxyTransport(u *url.URL) (http.RoundTripper, error) {
 		return nil, errors.New("failed to configure the SOCKS5 proxy")
 	}
 
-	transport.DialContext = socksDialer.(proxy.ContextDialer).DialContext
+	contextDialer, ok := socksDialer.(proxy.ContextDialer)
+	if !ok {
+		return nil, errors.New("SOCKS5 proxy does not support context cancellation")
+	}
+	transport.DialContext = contextDialer.DialContext
 	return transport, nil
 }

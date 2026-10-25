@@ -28,8 +28,9 @@ func TestParseProxyURLAcceptsValidURLs(t *testing.T) {
 		wantHost string
 	}{
 		{"http://127.0.0.1:8080", "127.0.0.1:8080"},
-		{"http://127.0.0.1", "127.0.0.1:80"},       // default port
-		{"https://proxy.local", "proxy.local:443"}, // default port
+		{"http://127.0.0.1", "127.0.0.1:80"},          // default port
+		{"http://127.0.0.1:65535", "127.0.0.1:65535"}, // highest valid port
+		{"https://proxy.local", "proxy.local:443"},    // default port
 		{"socks5://127.0.0.1:1080", "127.0.0.1:1080"},
 		{"socks5://127.0.0.1", "127.0.0.1:1080"}, // default port
 		{"  socks5://127.0.0.1:1080  ", "127.0.0.1:1080"},
@@ -62,6 +63,9 @@ func TestParseProxyURLRejectsInvalidURLs(t *testing.T) {
 		"http://user@proxy.local",  // empty password
 		"http://:pass@proxy.local", // empty username
 		"http://user:sec ret@host", // invalid character in userinfo
+		"http://127.0.0.1:0",       // port below range
+		"http://127.0.0.1:99999",   // port above range
+		"socks5://127.0.0.1:65536", // port above range
 	}
 
 	for _, raw := range tests {
@@ -81,6 +85,7 @@ func TestParseProxyURLErrorsNeverLeakCredentials(t *testing.T) {
 		"http://user:secret@proxy.local?q=1",
 		"http://user:sec ret@proxy.local",
 		"socks5://user@proxy.local",
+		"http://user:secret@proxy.local:99999",
 	}
 
 	for _, raw := range tests {

@@ -109,6 +109,7 @@ func TestParseDownloadOptionsRejectsInvalidProxy(t *testing.T) {
 		{"--proxy", "ftp://127.0.0.1:21"},
 		{"--proxy", "http://"},
 		{"--proxy", "http://proxy.local/path"},
+		{"--proxy", "http://127.0.0.1:99999"},
 		{"--proxy", "http://user:sec ret@proxy.local"},
 	}
 
