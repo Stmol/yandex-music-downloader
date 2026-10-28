@@ -91,11 +91,7 @@ func resolveRef(client Client, ref *Ref) ([]model.Track, error) {
 		if err != nil {
 			return nil, err
 		}
-		var tracks []model.Track
-		for _, volume := range album.Volumes {
-			tracks = append(tracks, volume...)
-		}
-		return tracks, nil
+		return flattenVolumes(album), nil
 	case KindLegacyPlaylist:
 		return resolvePlaylist(func() (*model.Playlist, error) {
 			return client.UsersPlaylist(ref.PlaylistID, ref.Username)
@@ -200,15 +196,60 @@ func fetchAlbumWithTracks(client Client, albumID string) (*model.Album, error) {
 	return nil, lastErr
 }
 
+// flattenVolumes returns the album tracks in disc and track order, each tagged
+// with the album as its first release and its cover.
 func flattenVolumes(album *model.Album) []model.Track {
 	if album == nil {
 		return nil
 	}
+	releaseCover := strings.TrimSpace(album.CoverURI)
 	var tracks []model.Track
-	for _, volume := range album.Volumes {
-		tracks = append(tracks, volume...)
+	for volumeIdx, volume := range album.Volumes {
+		for trackIdx, track := range volume {
+			track.Albums = putReleaseFirst(track.Albums, *album, model.TrackPosition{
+				Volume: volumeIdx + 1,
+				Index:  trackIdx + 1,
+			})
+			// The embedded cover comes from track.CoverURI first, and that cover
+			// may belong to another release of the same track.
+			if releaseCover != "" {
+				track.CoverURI = releaseCover
+			}
+			tracks = append(tracks, track)
+		}
 	}
 	return tracks
+}
+
+// putReleaseFirst makes the release being downloaded the first album of a
+// track. Tags are written from the first album, and a track that appears on
+// several releases may list another release first. The track's own entry for
+// the release is kept and completed from the release; other releases stay
+// after it. position fills the disc and track number fields that the track's
+// own entry does not name.
+func putReleaseFirst(albums []model.Album, release model.Album, position model.TrackPosition) []model.Album {
+	if release.ID.String() == "" {
+		return albums
+	}
+	entry := release
+	entry.Volumes = nil
+	entry.TrackPosition = model.TrackPosition{}
+	others := make([]model.Album, 0, len(albums))
+	for _, album := range albums {
+		if album.ID == release.ID {
+			entry = album
+			continue
+		}
+		others = append(others, album)
+	}
+	entry = mergeTrackAlbum([]model.Album{entry}, release)[0]
+	if entry.TrackPosition.Volume == 0 {
+		entry.TrackPosition.Volume = position.Volume
+	}
+	if entry.TrackPosition.Index == 0 {
+		entry.TrackPosition.Index = position.Index
+	}
+	return append([]model.Album{entry}, others...)
 }
 
 // attachAlbumMeta fills missing album metadata of each track from the release it is downloaded from.
