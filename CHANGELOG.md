@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## v1.15.0 - 2026-10-28
 - add `--proxy` to the TUI and `yamdl download` to route all connections through an HTTP, HTTPS, or SOCKS5 proxy, with optional `user:password@` authentication; an invalid proxy URL exits with code 2 before any request is sent
 - tag tracks with the album or artist release they are downloaded from, even when Yandex Music lists another release of the same track first, so the album title, year, track number, disc number, and cover match that release
 
